@@ -7,6 +7,7 @@ import {
   downloadImageAsBase64,
   generateCaptions,
   isSupportedImageType,
+  normalizeImageForClaude,
 } from "../../../lib/claude";
 import { MetaApiError, getMediaById } from "../../../lib/instagram";
 import { getObjectAsBase64 } from "../../../lib/storage";
@@ -75,7 +76,8 @@ export const POST: APIRoute = async (context) => {
       if (obj.size > 5 * 1024 * 1024) {
         return json({ error: "image_too_large" }, 400);
       }
-      image = { base64: obj.base64, mediaType: obj.contentType };
+      // Redimensiona y re-encodea a JPEG antes de mandarla a Claude (ahorra tokens).
+      image = await normalizeImageForClaude(Buffer.from(obj.base64, "base64"));
     } else {
       return json({ error: "bad_request" }, 400);
     }

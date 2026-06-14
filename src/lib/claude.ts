@@ -1,8 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
+import sharp from "sharp";
 import { TONES } from "./tones";
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // límite de la API de Claude
+// Lado largo al que reducimos antes de mandar a Claude. Claude cobra por
+// dimensiones en píxeles, no por bytes (tokens ≈ ancho×alto/750), así que
+// reducir la resolución es lo único que ahorra tokens. 768px es el punto dulce:
+// el modelo sigue reconociendo la escena para el caption con ~40% menos input.
+const MAX_IMAGE_EDGE = 768;
 
 const SUPPORTED_IMAGE_TYPES = [
   "image/jpeg",
@@ -161,7 +167,35 @@ export async function generateCaptions(
   );
 }
 
-/** Descarga una imagen (p. ej. del CDN de Instagram) y la convierte a base64. */
+/**
+ * Reduce el lado largo a `MAX_IMAGE_EDGE` (sin agrandar) y re-encodea a JPEG,
+ * aplanando la transparencia sobre blanco. Baja los tokens que cobra Claude
+ * (cobra por dimensiones, no por bytes) y elimina de raíz el límite de 5MB.
+ * Acepta de entrada JPG/PNG/GIF/WebP; siempre devuelve JPEG.
+ */
+export async function normalizeImageForClaude(buffer: Buffer): Promise<{
+  base64: string;
+  mediaType: SupportedImageType;
+}> {
+  const out = await sharp(buffer)
+    .rotate() // aplica la orientación EXIF (fotos de móvil) antes de redimensionar
+    .resize({
+      width: MAX_IMAGE_EDGE,
+      height: MAX_IMAGE_EDGE,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .flatten({ background: "#ffffff" }) // PNG/WebP con alfa → fondo blanco
+    .jpeg({ quality: 82 })
+    .toBuffer();
+  return { base64: out.toString("base64"), mediaType: "image/jpeg" };
+}
+
+/**
+ * Descarga una imagen (p. ej. del CDN de Instagram) y la prepara para Claude.
+ * La normaliza con `normalizeImageForClaude`, así que el resultado es JPEG
+ * redimensionado independientemente del formato de origen.
+ */
 export async function downloadImageAsBase64(url: string): Promise<{
   base64: string;
   mediaType: SupportedImageType;
@@ -170,15 +204,9 @@ export async function downloadImageAsBase64(url: string): Promise<{
   if (!res.ok) {
     throw new Error(`No se pudo descargar la imagen (HTTP ${res.status})`);
   }
-  const contentType = (res.headers.get("content-type") ?? "")
-    .split(";")[0]
-    .trim();
-  if (!isSupportedImageType(contentType)) {
-    throw new Error(`Tipo de imagen no soportado: ${contentType}`);
-  }
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.byteLength > MAX_IMAGE_BYTES) {
     throw new Error("La imagen supera el límite de 5MB de la API de Claude");
   }
-  return { base64: buffer.toString("base64"), mediaType: contentType };
+  return normalizeImageForClaude(buffer);
 }
