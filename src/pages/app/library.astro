@@ -1,0 +1,13 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import FileManager from "../../components/vue/FileManager.vue";
+---
+
+<Layout title="Biblioteca — InstaCaptions">
+  <h1 class="mb-1 text-2xl font-bold">Biblioteca</h1>
+  <p class="mb-6 text-neutral-600">
+    Tus imágenes en Cloudflare R2, organizadas en carpetas. Desde aquí podrás
+    usarlas para publicar.
+  </p>
+  <FileManager client:load />
+</Layout>

@@ -1,0 +1,103 @@
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+
+// ---------------------------------------------------------------------------
+// Tablas de Better Auth (user, session, account, verification).
+// Los nombres de las propiedades deben coincidir con los campos que espera
+// Better Auth; los nombres de columna van en snake_case.
+// ---------------------------------------------------------------------------
+
+export const user = sqliteTable("user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: integer("email_verified", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  image: text("image"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const session = sqliteTable("session", {
+  id: text("id").primaryKey(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  token: text("token").notNull().unique(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const account = sqliteTable("account", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: integer("access_token_expires_at", {
+    mode: "timestamp",
+  }),
+  refreshTokenExpiresAt: integer("refresh_token_expires_at", {
+    mode: "timestamp",
+  }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const verification = sqliteTable("verification", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// Tablas de la aplicación
+// ---------------------------------------------------------------------------
+
+// Cuenta de Instagram Business conectada por cada usuario (Fase 2).
+export const instagramAccount = sqliteTable("instagram_account", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: "cascade" }),
+  igUserId: text("ig_user_id").notNull(),
+  igUsername: text("ig_username"),
+  accessToken: text("access_token").notNull(),
+  tokenExpiresAt: integer("token_expires_at", { mode: "timestamp" }),
+  // Última vez que se refrescó el token largo (flujo Instagram Login).
+  tokenRefreshedAt: integer("token_refreshed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+// Log de cada generación de captions para iterar el prompt (Fase 3).
+export const generationLog = sqliteTable("generation_log", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  // 'existing_post' (Flujo A) | 'new_post' (Flujo B)
+  source: text("source").notNull(),
+  igMediaId: text("ig_media_id"),
+  context: text("context"),
+  tone: text("tone"),
+  withHashtags: integer("with_hashtags", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  options: text("options", { mode: "json" }).notNull(),
+  chosenIndex: integer("chosen_index"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});

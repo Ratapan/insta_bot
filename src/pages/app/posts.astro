@@ -1,0 +1,13 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import PostsGrid from "../../components/vue/PostsGrid.vue";
+---
+
+<Layout title="Mis publicaciones — InstaCaptions">
+  <h1 class="mb-1 text-2xl font-bold">Mis publicaciones</h1>
+  <p class="mb-6 text-neutral-600">
+    Tus últimos 6 posts. Genera nuevas ideas de caption para cualquiera de
+    ellos.
+  </p>
+  <PostsGrid client:load />
+</Layout>

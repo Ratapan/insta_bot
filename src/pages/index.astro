@@ -1,0 +1,33 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+if (Astro.locals.user) {
+  return Astro.redirect("/app");
+}
+---
+
+<Layout title="InstaCaptions — Captions para Instagram con IA">
+  <section class="flex flex-col items-center gap-6 py-16 text-center">
+    <h1 class="max-w-xl text-4xl font-bold tracking-tight">
+      Captions para Instagram, escritos con <span class="text-pink-600">Claude</span>
+    </h1>
+    <p class="max-w-md text-lg text-neutral-600">
+      Conecta tu cuenta, sube una foto o elige un post, y recibe tres opciones
+      de caption en español con el tono que quieras.
+    </p>
+    <div class="flex gap-3">
+      <a
+        href="/register"
+        class="rounded-lg bg-neutral-900 px-5 py-2.5 font-medium text-white hover:bg-neutral-700"
+      >
+        Empezar
+      </a>
+      <a
+        href="/login"
+        class="rounded-lg border border-neutral-300 px-5 py-2.5 font-medium hover:bg-neutral-100"
+      >
+        Ya tengo cuenta
+      </a>
+    </div>
+  </section>
+</Layout>

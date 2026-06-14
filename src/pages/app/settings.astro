@@ -1,0 +1,100 @@
+---
+import { eq } from "drizzle-orm";
+import Layout from "../../layouts/Layout.astro";
+import InstagramConnection from "../../components/vue/InstagramConnection.vue";
+import LogoutButton from "../../components/vue/LogoutButton.vue";
+import { db } from "../../lib/db";
+import { instagramAccount } from "../../db/schema";
+import { MetaApiError, refreshLongLivedToken } from "../../lib/instagram";
+
+const user = Astro.locals.user!;
+
+let account = await db.query.instagramAccount.findFirst({
+  where: eq(instagramAccount.userId, user.id),
+});
+
+const WEEK_MS = 1000 * 60 * 60 * 24 * 7;
+const expiresIn = (a: typeof account) =>
+  a?.tokenExpiresAt ? a.tokenExpiresAt.getTime() - Date.now() : Infinity;
+
+// Auto-refresh: si al token largo le queda menos de una semana pero sigue vivo,
+// lo renovamos por otros 60 días para evitar tener que reconectar.
+if (account && expiresIn(account) > 0 && expiresIn(account) < WEEK_MS) {
+  try {
+    const now = new Date();
+    const { accessToken, expiresAt } = await refreshLongLivedToken(
+      account.accessToken,
+    );
+    await db
+      .update(instagramAccount)
+      .set({
+        accessToken,
+        tokenExpiresAt: expiresAt,
+        tokenRefreshedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(instagramAccount.userId, user.id));
+    account = { ...account, accessToken, tokenExpiresAt: expiresAt };
+  } catch (err) {
+    // Si no se puede refrescar (p. ej. token ya caducado), la UI pedirá
+    // reconectar mediante el aviso de expiresSoon.
+    if (!(err instanceof MetaApiError)) throw err;
+  }
+}
+
+const expiresSoon = expiresIn(account) < WEEK_MS;
+
+const ERROR_MESSAGES: Record<string, string> = {
+  denied: "Cancelaste la conexión con Instagram.",
+  state: "La verificación de seguridad falló. Inténtalo de nuevo.",
+  meta: "Instagram devolvió un error al conectar. Inténtalo de nuevo.",
+  config:
+    "Faltan las credenciales de Meta en el servidor (META_APP_ID / META_APP_SECRET).",
+  unknown: "Algo ha ido mal. Inténtalo de nuevo.",
+};
+
+const errorParam = Astro.url.searchParams.get("error");
+const errorMessage = errorParam
+  ? (ERROR_MESSAGES[errorParam] ?? ERROR_MESSAGES.unknown)
+  : null;
+const justConnected = Astro.url.searchParams.get("connected") === "1";
+---
+
+<Layout title="Ajustes — InstaCaptions">
+  <h1 class="mb-8 text-2xl font-bold">Ajustes</h1>
+
+  {
+    justConnected && (
+      <p class="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
+        ¡Cuenta de Instagram conectada!
+      </p>
+    )
+  }
+  {
+    errorMessage && (
+      <p class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        {errorMessage}
+      </p>
+    )
+  }
+
+  <section class="mb-6 rounded-xl border border-neutral-200 bg-white p-5">
+    <h2 class="mb-3 font-semibold">Instagram</h2>
+    <InstagramConnection
+      client:load
+      connected={!!account}
+      username={account?.igUsername ?? null}
+      expiresSoon={expiresSoon}
+    />
+  </section>
+
+  <section class="rounded-xl border border-neutral-200 bg-white p-5">
+    <h2 class="font-semibold">Cuenta</h2>
+    <p class="mt-1 text-sm text-neutral-600">
+      Sesión iniciada como <span class="font-medium">{user.email}</span>
+    </p>
+    <div class="mt-4">
+      <LogoutButton client:load />
+    </div>
+  </section>
+</Layout>

@@ -1,0 +1,13 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import UploadForm from "../../components/vue/UploadForm.vue";
+---
+
+<Layout title="Nueva publicación — InstaCaptions">
+  <h1 class="mb-1 text-2xl font-bold">Nueva publicación</h1>
+  <p class="mb-6 text-neutral-600">
+    Sube una foto, deja que Claude escriba el caption y publícala en Instagram
+    sin salir de aquí.
+  </p>
+  <UploadForm client:load />
+</Layout>

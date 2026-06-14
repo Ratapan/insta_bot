@@ -1,0 +1,36 @@
+{
+  "name": "insta-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "start": "node ./dist/server/entry.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
+    "@astrojs/node": "^9.5.5",
+    "@astrojs/vue": "^5.1.4",
+    "@aws-sdk/client-s3": "^3.1067.0",
+    "@aws-sdk/s3-request-presigner": "^3.1067.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "astro": "^5.18.2",
+    "better-auth": "^1.6.17",
+    "better-sqlite3": "^12.10.0",
+    "drizzle-orm": "^0.45.2",
+    "tailwindcss": "^4.3.0",
+    "vue": "^3.5.38"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@types/better-sqlite3": "^7.6.13",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `instagram_account` ADD `token_refreshed_at` integer;
