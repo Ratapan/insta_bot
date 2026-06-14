@@ -185,6 +185,12 @@ export async function getMe(
 // Media
 // ---------------------------------------------------------------------------
 
+interface IgMediaChildren {
+  id: string;
+  media_type: "IMAGE" | "VIDEO";
+  media_url: string;
+  thumbnail_url?: string;
+}
 export interface IgMedia {
   id: string;
   caption: string | null;
@@ -193,6 +199,9 @@ export interface IgMedia {
   media_type: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM";
   timestamp: string;
   permalink: string;
+  like_count: number;
+  comments_count: number;
+  children?: IgMediaChildren[];
 }
 
 export async function getRecentMedia(
@@ -201,7 +210,7 @@ export async function getRecentMedia(
   limit = 6,
 ): Promise<IgMedia[]> {
   const data = await graphFetch<{ data: IgMedia[] }>(`/${igUserId}/media`, {
-    fields: "id,caption,media_url,thumbnail_url,media_type,timestamp,permalink",
+    fields: "id,caption,media_url,thumbnail_url,media_type,timestamp,permalink,like_count,comments_count,children{id,media_type,media_url,thumbnail_url}",
     limit: String(limit),
     access_token: accessToken,
   });

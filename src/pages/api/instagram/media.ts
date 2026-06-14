@@ -21,7 +21,7 @@ export const GET: APIRoute = async (context) => {
   }
 
   try {
-    const media = await getRecentMedia(account.accessToken, account.igUserId, 6);
+    const media = await getRecentMedia(account.accessToken, account.igUserId, 12);
     return json({ media });
   } catch (err) {
     console.error("[instagram/media]", err);
