@@ -1,5 +1,7 @@
 import { defineMiddleware } from "astro:middleware";
 import { auth } from "./lib/auth";
+// Arranca el scheduler de publicaciones programadas (efecto de módulo, 1 vez).
+import "./lib/scheduler";
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;

@@ -1,0 +1,14 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import FeedPlanner from "../../components/vue/FeedPlanner.vue";
+---
+
+<Layout title="Planifica tu feed — InstaCaptions">
+  <h1 class="mb-1 text-2xl font-bold">Planifica tu feed</h1>
+  <p class="mb-6 text-neutral-600">
+    Coloca tus próximas fotos sobre tu feed actual y arrástralas para ordenarlas.
+    Las publicadas quedan fijas; cada hueco planeado puedes programarlo cuando
+    quieras.
+  </p>
+  <FeedPlanner client:load />
+</Layout>

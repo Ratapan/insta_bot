@@ -243,6 +243,58 @@ export async function createMediaContainer(
   return data.id;
 }
 
+/**
+ * Crea el container de una imagen suelta de un carrusel (`is_carousel_item`).
+ * No lleva caption; el caption va en el container del carrusel.
+ */
+export async function createCarouselItemContainer(
+  accessToken: string,
+  igUserId: string,
+  imageUrl: string,
+): Promise<string> {
+  const data = await graphFetch<{ id: string }>(
+    `/${igUserId}/media`,
+    {},
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        image_url: imageUrl,
+        is_carousel_item: "true",
+        access_token: accessToken,
+      }),
+    },
+  );
+  return data.id;
+}
+
+/**
+ * Crea el container del carrusel a partir de los ids de los items (2-10) y el
+ * caption. Hay que esperar a que esté `FINISHED` antes de publicarlo.
+ */
+export async function createCarouselContainer(
+  accessToken: string,
+  igUserId: string,
+  childIds: string[],
+  caption: string,
+): Promise<string> {
+  const data = await graphFetch<{ id: string }>(
+    `/${igUserId}/media`,
+    {},
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        media_type: "CAROUSEL",
+        children: childIds.join(","),
+        caption,
+        access_token: accessToken,
+      }),
+    },
+  );
+  return data.id;
+}
+
 export async function getContainerStatus(
   accessToken: string,
   creationId: string,

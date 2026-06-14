@@ -83,6 +83,35 @@ export const instagramAccount = sqliteTable("instagram_account", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+// Publicaciones planeadas/programadas (carrusel o imagen suelta).
+// Un mismo registro sirve al planificador de feed y a la cola de programadas:
+//   - status 'draft'  → hueco colocado en el grid del feed, todavía sin fecha.
+//   - status 'pending'→ programado; el scheduler en proceso (src/lib/scheduler.ts)
+//                        lo publica a su hora.
+export const scheduledPost = sqliteTable("scheduled_post", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  // Claves R2 de las imágenes (1-10), en orden. Se firman al publicar.
+  storageKeys: text("storage_keys", { mode: "json" })
+    .notNull()
+    .$type<string[]>(),
+  caption: text("caption").notNull(),
+  // Nulo mientras es borrador (draft); se fija al programar.
+  scheduledAt: integer("scheduled_at", { mode: "timestamp" }),
+  // draft | pending | publishing | published | failed | canceled
+  status: text("status").notNull().default("pending"),
+  // Orden en el grid del planificador de feed (asc). Solo aplica a no publicados.
+  position: integer("position").notNull().default(0),
+  attempts: integer("attempts").notNull().default(0),
+  error: text("error"),
+  igMediaId: text("ig_media_id"),
+  permalink: text("permalink"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 // Log de cada generación de captions para iterar el prompt (Fase 3).
 export const generationLog = sqliteTable("generation_log", {
   id: text("id").primaryKey(),

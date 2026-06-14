@@ -2,14 +2,22 @@
 import { onMounted, ref } from "vue";
 import CaptionGenerator from "./CaptionGenerator.vue";
 
+interface IgMediaChild {
+  id: string;
+  media_type: "IMAGE" | "VIDEO";
+  media_url: string;
+  thumbnail_url?: string;
+}
+
 interface IgMedia {
   id: string;
   caption: string | null;
   media_url: string;
   thumbnail_url?: string;
-  media_type: string;
+  media_type: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM";
   timestamp: string;
   permalink: string;
+  children?: IgMediaChild[];
 }
 
 const media = ref<IgMedia[]>([]);
@@ -38,10 +46,20 @@ onMounted(async () => {
   }
 });
 
+function childPreview(child: IgMediaChild): string {
+  return child.media_type === "VIDEO" && child.thumbnail_url
+    ? child.thumbnail_url
+    : child.media_url;
+}
+
 function previewUrl(item: IgMedia): string {
-  return item.media_type === "VIDEO" && item.thumbnail_url
-    ? item.thumbnail_url
-    : item.media_url;
+  if (item.media_type === "VIDEO" && item.thumbnail_url) {
+    return item.thumbnail_url;
+  }
+  if (item.media_url) return item.media_url;
+  // Un CAROUSEL_ALBUM no siempre trae media_url propio: usa la 1ª diapositiva.
+  const first = item.children?.[0];
+  return first ? childPreview(first) : "";
 }
 
 function formatDate(iso: string): string {
@@ -106,12 +124,61 @@ function formatDate(iso: string): string {
           :key="item.id"
           class="overflow-hidden rounded-xl border border-neutral-200 bg-white"
         >
-          <img
-            :src="previewUrl(item)"
-            alt=""
-            loading="lazy"
-            class="aspect-square w-full object-cover"
-          />
+          <div class="relative">
+            <img
+              :src="previewUrl(item)"
+              alt=""
+              loading="lazy"
+              class="aspect-square w-full object-cover"
+            />
+            <!-- Indicador de carrusel: nº de diapositivas -->
+            <span
+              v-if="item.media_type === 'CAROUSEL_ALBUM' && item.children?.length"
+              class="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white"
+            >
+              <svg
+                class="size-3"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <rect x="8" y="8" width="12" height="12" rx="2" />
+                <path d="M4 16V6a2 2 0 0 1 2-2h10" />
+              </svg>
+              {{ item.children.length }}
+            </span>
+          </div>
+
+          <!-- Tira de miniaturas de las diapositivas del álbum -->
+          <div
+            v-if="item.media_type === 'CAROUSEL_ALBUM' && item.children?.length"
+            class="flex gap-1.5 overflow-x-auto px-3 pt-3"
+          >
+            <div
+              v-for="child in item.children"
+              :key="child.id"
+              class="relative shrink-0"
+            >
+              <img
+                :src="childPreview(child)"
+                alt=""
+                loading="lazy"
+                class="size-12 rounded-md object-cover"
+              />
+              <span
+                v-if="child.media_type === 'VIDEO'"
+                class="absolute inset-0 flex items-center justify-center text-white"
+                aria-label="Vídeo"
+              >
+                <svg class="size-4 drop-shadow" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </span>
+            </div>
+          </div>
+
           <div class="flex flex-col gap-2 p-3">
             <p class="text-xs text-neutral-500">
               {{ formatDate(item.timestamp) }}

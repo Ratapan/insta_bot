@@ -37,7 +37,7 @@ const client = new Anthropic({
   maxRetries: 3, // reintenta automáticamente ante rate limits y errores 5xx
 });
 
-const SYSTEM_PROMPT = `Eres un copywriter experto en Instagram que escribe captions en español.
+const SYSTEM_PROMPT = `Eres un copywriter experto en Instagram que escribe captions en español, idealmente un poco chileno.
 
 Reglas:
 - Devuelve SIEMPRE y ÚNICAMENTE un JSON válido con esta forma exacta:

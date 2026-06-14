@@ -1,0 +1,13 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import ScheduledPosts from "../../components/vue/ScheduledPosts.vue";
+---
+
+<Layout title="Programadas — InstaCaptions">
+  <h1 class="mb-1 text-2xl font-bold">Publicaciones programadas</h1>
+  <p class="mb-6 text-neutral-600">
+    Tus posts en cola. Se publican solos a la hora indicada; aquí puedes
+    cancelarlos o reintentar los que fallaron.
+  </p>
+  <ScheduledPosts client:load />
+</Layout>

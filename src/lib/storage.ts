@@ -138,6 +138,23 @@ export async function deleteFile(userId: string, key: string): Promise<void> {
   );
 }
 
+/** Borra varias imágenes de una vez (máx. 1000 por la API de S3/R2). */
+export async function deleteFiles(
+  userId: string,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  const objects = keys.map((key) => ({
+    Key: `${userPrefix(userId)}${sanitizeRelPath(key)}`,
+  }));
+  await r2.send(
+    new DeleteObjectsCommand({
+      Bucket: BUCKET,
+      Delete: { Objects: objects },
+    }),
+  );
+}
+
 export async function deleteFolder(userId: string, path: string): Promise<void> {
   const rel = sanitizeRelPath(path);
   if (!rel) throw new Error("No se puede borrar la carpeta raíz");

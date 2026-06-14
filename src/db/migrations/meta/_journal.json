@@ -15,6 +15,20 @@
       "when": 1781393755124,
       "tag": "0001_misty_doctor_octopus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781416113740,
+      "tag": "0002_flat_kree",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1781474331841,
+      "tag": "0003_tan_fixer",
+      "breakpoints": true
     }
   ]
 }

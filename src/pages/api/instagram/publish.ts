@@ -2,14 +2,8 @@ import type { APIRoute } from "astro";
 import { eq } from "drizzle-orm";
 import { db } from "../../../lib/db";
 import { instagramAccount } from "../../../db/schema";
-import {
-  MetaApiError,
-  createMediaContainer,
-  getContainerStatus,
-  getMediaPermalink,
-  publishMediaContainer,
-} from "../../../lib/instagram";
-import { getPresignedUrl } from "../../../lib/storage";
+import { MetaApiError } from "../../../lib/instagram";
+import { PublishError, publishToInstagram } from "../../../lib/publish";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -18,12 +12,10 @@ function json(body: unknown, status = 200) {
   });
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 export const POST: APIRoute = async (context) => {
   const userId = context.locals.user!.id;
 
-  let body: { storageKey?: string; caption?: string };
+  let body: { storageKeys?: string[]; caption?: string };
   try {
     body = await context.request.json();
   } catch {
@@ -31,8 +23,12 @@ export const POST: APIRoute = async (context) => {
   }
 
   const caption = (body.caption ?? "").trim();
-  if (!body.storageKey || !caption) {
+  const storageKeys = body.storageKeys ?? [];
+  if (!Array.isArray(storageKeys) || storageKeys.length === 0 || !caption) {
     return json({ error: "bad_request" }, 400);
+  }
+  if (storageKeys.length > 10) {
+    return json({ error: "too_many_images" }, 400);
   }
   if (caption.length > 2200) {
     return json({ error: "caption_too_long" }, 400);
@@ -44,45 +40,18 @@ export const POST: APIRoute = async (context) => {
   if (!account) return json({ error: "not_connected" }, 409);
 
   try {
-    // 1. URL firmada para que los servidores de Instagram descarguen la imagen.
-    const imageUrl = await getPresignedUrl(userId, body.storageKey, 3600);
-
-    // 2. Crear el contenedor de media.
-    const creationId = await createMediaContainer(
-      account.accessToken,
-      account.igUserId,
-      imageUrl,
+    const { mediaId, permalink } = await publishToInstagram(
+      userId,
+      { accessToken: account.accessToken, igUserId: account.igUserId },
+      storageKeys,
       caption,
     );
-
-    // 3. Esperar a que Instagram procese la imagen.
-    let status = "IN_PROGRESS";
-    for (let i = 0; i < 20 && status === "IN_PROGRESS"; i++) {
-      await sleep(1500);
-      status = await getContainerStatus(account.accessToken, creationId);
-    }
-    if (status !== "FINISHED") {
-      console.error("[instagram/publish] container status:", status);
-      return json({ error: "container_failed", status }, 502);
-    }
-
-    // 4. Publicar.
-    const mediaId = await publishMediaContainer(
-      account.accessToken,
-      account.igUserId,
-      creationId,
-    );
-
-    let permalink: string | null = null;
-    try {
-      permalink = await getMediaPermalink(account.accessToken, mediaId);
-    } catch {
-      // El post ya está publicado; el permalink es solo un extra.
-    }
-
     return json({ mediaId, permalink });
   } catch (err) {
     console.error("[instagram/publish]", err);
+    if (err instanceof PublishError) {
+      return json({ error: err.code, status: err.status }, 502);
+    }
     if (err instanceof MetaApiError) {
       if (err.isAuthError) return json({ error: "reconnect" }, 409);
       return json({ error: "meta_error", message: err.message }, 502);
