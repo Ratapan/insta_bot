@@ -4,9 +4,16 @@
 //   PUT    { url, file?, …campos }  → upsert. Los invariantes (visible:false
 //          en el primer guardado, category derivado de categories[0]) los
 //          aplica upsertImage en la lib; aquí solo se valida y orquesta.
+//   PATCH  { url, …campos }  → update parcial de un doc EXISTENTE (404 si no
+//          hay doc; nunca crea stubs). Lo usa la cola de revisión.
 //   DELETE { url, deleteObject? }   → borra el doc y, opcionalmente, el objeto
 import type { APIRoute } from "astro";
-import { deleteImageByUrl, findImageByUrl, upsertImage } from "../../../lib/portfolioDb";
+import {
+  deleteImageByUrl,
+  findImageByUrl,
+  updateImageFields,
+  upsertImage,
+} from "../../../lib/portfolioDb";
 import { portfolioImageFieldsSchema } from "../../../lib/portfolioSchema";
 import {
   deletePortfolioObject,
@@ -61,6 +68,30 @@ export const PUT: APIRoute = async (context) => {
     return json({ image });
   } catch (err) {
     console.error("[portfolio/image] PUT", err);
+    return json({ error: "portfolio_unavailable" }, 502);
+  }
+};
+
+export const PATCH: APIRoute = async (context) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await context.request.json();
+  } catch {
+    return json({ error: "bad_request" }, 400);
+  }
+
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  if (!url) return json({ error: "bad_request" }, 400);
+
+  const parsed = portfolioImageFieldsSchema.safeParse(body);
+  if (!parsed.success) return json({ error: "invalid_fields" }, 400);
+
+  try {
+    const image = await updateImageFields(url, parsed.data);
+    if (!image) return json({ error: "not_found" }, 404);
+    return json({ image });
+  } catch (err) {
+    console.error("[portfolio/image] PATCH", err);
     return json({ error: "portfolio_unavailable" }, 502);
   }
 };

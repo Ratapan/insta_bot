@@ -153,6 +153,50 @@ export async function upsertImage(
   return result;
 }
 
+/**
+ * Actualización parcial de un doc existente (para la cola de revisión: tocar
+ * stars/visible/portfolio sin reenviar el resto). A diferencia de upsertImage
+ * NO hace upsert: si la URL no tiene doc devuelve null — un PATCH nunca debe
+ * crear stubs. Mantiene el invariante de `category` derivado.
+ */
+export async function updateImageFields(
+  url: string,
+  rawFields: PortfolioImageFields,
+): Promise<PortfolioImage | null> {
+  const fields = portfolioImageFieldsSchema.parse(rawFields);
+  const col = await getCollection();
+
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) set[key] = value;
+  }
+
+  const unset: Record<string, ""> = {};
+  if (fields.categories !== undefined) {
+    if (fields.categories.length > 0) {
+      set.category = fields.categories[0];
+    } else {
+      unset.category = "";
+    }
+  }
+
+  const update: Record<string, unknown> = { $set: set };
+  if (Object.keys(unset).length > 0) update.$unset = unset;
+
+  return col.findOneAndUpdate({ url }, update, { returnDocument: "after" });
+}
+
+/**
+ * Toda la colección de una pasada, en orden estable por `url` (el prefijo de
+ * la key agrupa las sesiones de forma natural). Para la cola de revisión, que
+ * filtra y pagina en el cliente; con el volumen del portfolio (decenas de
+ * docs) no hace falta paginar en el servidor.
+ */
+export async function listAllImages(): Promise<PortfolioImage[]> {
+  const col = await getCollection();
+  return col.find({}).sort({ url: 1 }).toArray();
+}
+
 export async function deleteImageByUrl(url: string): Promise<boolean> {
   const col = await getCollection();
   const result = await col.deleteOne({ url });

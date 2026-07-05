@@ -1,0 +1,24 @@
+---
+// Cola de revisión del portafolio: curado rápido con teclado (estrellas,
+// visible, portafolio) imagen por imagen, agrupado por sesión.
+import Layout from "../../../layouts/Layout.astro";
+import PortfolioTriage from "../../../components/vue/PortfolioTriage.vue";
+---
+
+<Layout title="Revisar portafolio — InstaCaptions">
+  <div class="mb-2 flex items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold">Revisar</h1>
+    <a
+      href="/app/portfolio"
+      class="text-sm text-neutral-600 hover:text-pink-600"
+    >
+      ← Volver al gestor
+    </a>
+  </div>
+  <p class="mb-8 text-sm text-neutral-600">
+    Curado rápido con teclado: <kbd>←</kbd>/<kbd>→</kbd> para moverte,
+    <kbd>1</kbd>–<kbd>5</kbd> estrellas, <kbd>V</kbd> visible,
+    <kbd>P</kbd> portafolio, <kbd>Enter</kbd> para ampliar.
+  </p>
+  <PortfolioTriage client:load />
+</Layout>

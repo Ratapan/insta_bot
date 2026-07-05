@@ -6,7 +6,15 @@ import PortfolioManager from "../../components/vue/PortfolioManager.vue";
 ---
 
 <Layout title="Portafolio — InstaCaptions">
-  <h1 class="mb-2 text-2xl font-bold">Portafolio</h1>
+  <div class="mb-2 flex items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold">Portafolio</h1>
+    <a
+      href="/app/portfolio/revisar"
+      class="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-pink-500"
+    >
+      ⚡ Revisar (modo teclado)
+    </a>
+  </div>
   <p class="mb-8 text-sm text-neutral-600">
     Imágenes de <span class="font-medium">javiersabando.lat</span>: sube fotos
     (se convierten a WebP), genera la metadata bilingüe con IA y publícalas en
