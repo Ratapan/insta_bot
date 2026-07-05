@@ -11,6 +11,7 @@
 // sesión/filtro: marcar una imagen como visible no la saca de la cola a
 // mitad de revisión.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import PortfolioBatchReview from "./PortfolioBatchReview.vue";
 
 interface TriageImage {
   url: string;
@@ -38,7 +39,15 @@ interface TriageImage {
 type PatchableFields = Partial<
   Pick<
     TriageImage,
-    "stars" | "visible" | "portfolio" | "series" | "footer" | "footer_en"
+    | "stars"
+    | "visible"
+    | "portfolio"
+    | "series"
+    | "caption"
+    | "caption_en"
+    | "footer"
+    | "footer_en"
+    | "categories"
   >
 >;
 
@@ -47,6 +56,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   not_found: "Esta imagen ya no existe en Mongo. Recarga la cola.",
   portfolio_unavailable:
     "No se pudo hablar con la base del portafolio. Revisa la configuración.",
+  batch_running: "Ya hay un lote generándose. Espera a que termine.",
+  rate_limited:
+    "Has alcanzado el límite de generaciones por hora. Espera un poco antes de seguir.",
 };
 
 function messageFor(code: string): string {
@@ -419,10 +431,156 @@ async function undoSeries() {
   else closeSeriesPanel();
 }
 
+// ---------- Lote de IA (Fase 3) ----------
+
+interface BatchProposal {
+  url: string;
+  file: string;
+  caption: string;
+  caption_en: string;
+  footer: string;
+  footer_en: string;
+  categories: string[];
+  unknownCategories: string[];
+}
+
+interface BatchJobState {
+  id: string;
+  status: "running" | "done" | "error";
+  error: string | null;
+  total: number;
+  done: number;
+  proposals: BatchProposal[];
+  skipped: string[];
+}
+
+const genJob = ref<BatchJobState | null>(null);
+const genPanelOpen = ref(false);
+const genApplying = ref(false);
+let genTimer: ReturnType<typeof setInterval> | undefined;
+
+/** Valores actuales de las imágenes con propuesta, para el lado a lado. */
+const genCurrentByUrl = computed(() => {
+  const out: Record<
+    string,
+    { caption?: string; caption_en?: string; footer?: string; footer_en?: string; categories: string[] }
+  > = {};
+  for (const p of genJob.value?.proposals ?? []) {
+    const img = byUrl.value.get(p.url);
+    if (!img) continue;
+    out[p.url] = {
+      caption: img.caption,
+      caption_en: img.caption_en,
+      footer: img.footer,
+      footer_en: img.footer_en,
+      categories: img.categories,
+    };
+  }
+  return out;
+});
+
+function stopGenPolling() {
+  clearInterval(genTimer);
+  genTimer = undefined;
+}
+
+async function pollGenJob() {
+  if (!genJob.value) return;
+  try {
+    const res = await fetch(`/api/portfolio/generate-batch?id=${genJob.value.id}`);
+    if (!res.ok) {
+      stopGenPolling();
+      return;
+    }
+    const data = await res.json();
+    genJob.value = data;
+    if (data.status !== "running") stopGenPolling();
+  } catch {
+    // Un fallo de red puntual no mata el polling; el siguiente tick reintenta.
+  }
+}
+
+async function startGeneration() {
+  const urls = selectedImages.value.map((img) => img.url);
+  if (urls.length === 0 || genJob.value?.status === "running") return;
+  try {
+    const res = await fetch("/api/portfolio/generate-batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(messageFor(data.error ?? "unknown"));
+      return;
+    }
+    genJob.value = {
+      id: data.jobId,
+      status: "running",
+      error: null,
+      total: data.total,
+      done: 0,
+      proposals: [],
+      skipped: [],
+    };
+    genPanelOpen.value = true;
+    stopGenPolling();
+    genTimer = setInterval(pollGenJob, 2500);
+  } catch {
+    showToast(messageFor("unknown"));
+  }
+}
+
+function discardBatch() {
+  stopGenPolling();
+  genPanelOpen.value = false;
+  genJob.value = null;
+}
+
+/** Aplica lo aceptado: tags nuevos al vocabulario y PATCH por imagen. */
+async function applyBatch(payload: {
+  items: { url: string; fields: Record<string, unknown> }[];
+  newCategories: string[];
+}) {
+  genApplying.value = true;
+  let failed = 0;
+
+  for (const name of payload.newCategories) {
+    try {
+      const res = await fetch("/api/portfolio/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  let applied = 0;
+  for (const item of payload.items) {
+    const img = byUrl.value.get(item.url);
+    if (!img) continue;
+    if (await patchImage(img, item.fields as PatchableFields, false)) applied += 1;
+    else failed += 1;
+  }
+
+  genApplying.value = false;
+  discardBatch();
+  if (failed > 0) {
+    showToast(`Aplicado con ${failed} error${failed === 1 ? "" : "es"} (${applied} imágenes OK).`);
+  } else {
+    showToast(`Metadata aplicada a ${applied} imagen${applied === 1 ? "" : "es"}.`, "ok");
+  }
+}
+
 // ---------- Teclado ----------
 
 function onKey(e: KeyboardEvent) {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // Bajo el panel del lote no hay atajos: descartar es decisión explícita.
+  if (genPanelOpen.value) return;
   const target = e.target as HTMLElement | null;
   if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
 
@@ -484,6 +642,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKey);
   clearTimeout(toastTimer);
+  stopGenPolling();
 });
 </script>
 
@@ -825,6 +984,14 @@ onBeforeUnmount(() => {
           </span>
           <span class="mx-1 h-5 w-px bg-neutral-200"></span>
           <button
+            :disabled="genJob?.status === 'running'"
+            class="rounded-lg bg-purple-100 px-3 py-1.5 text-xs font-medium text-purple-800 hover:bg-purple-200 disabled:opacity-40"
+            title="Genera caption/footer/categorías con IA para la selección"
+            @click="startGeneration"
+          >
+            ✨ Generar metadata
+          </button>
+          <button
             :disabled="selected.size < 2"
             class="rounded-lg bg-indigo-100 px-3 py-1.5 text-xs font-medium text-indigo-800 hover:bg-indigo-200 disabled:opacity-40"
             title="Agrupa la selección como díptico/tríptico"
@@ -946,6 +1113,21 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <!-- Panel de propuestas del lote de IA -->
+    <PortfolioBatchReview
+      v-if="genPanelOpen && genJob"
+      :proposals="genJob.proposals"
+      :current-by-url="genCurrentByUrl"
+      :status="genJob.status"
+      :done="genJob.done"
+      :total="genJob.total"
+      :skipped="genJob.skipped"
+      :error="genJob.error"
+      :applying="genApplying"
+      @apply="applyBatch"
+      @close="discardBatch"
+    />
 
     <!-- Lightbox -->
     <div

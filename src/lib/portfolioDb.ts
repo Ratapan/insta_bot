@@ -18,12 +18,14 @@ import { MongoClient, type Collection, type Db } from "mongodb";
 import {
   portfolioImageFieldsSchema,
   portfolioSessionInputSchema,
+  tagSchema,
   type PortfolioImage,
   type PortfolioImageFields,
   type PortfolioSession,
+  type Tag,
 } from "./portfolioSchema";
 
-export type { PortfolioImage, PortfolioImageFields, PortfolioSession };
+export type { PortfolioImage, PortfolioImageFields, PortfolioSession, Tag };
 
 let client: MongoClient | null = null;
 
@@ -45,6 +47,10 @@ async function getCollection(): Promise<Collection<PortfolioImage>> {
 
 async function getSessionsCollection(): Promise<Collection<PortfolioSession>> {
   return (await getDb()).collection<PortfolioSession>("sessions");
+}
+
+async function getTagsCollection(): Promise<Collection<Tag>> {
+  return (await getDb()).collection<Tag>("tags");
 }
 
 export interface ListImagesQuery {
@@ -219,6 +225,13 @@ export async function listSessions(): Promise<PortfolioSession[]> {
   return col.find({}).sort({ session: -1 }).toArray();
 }
 
+export async function findSessionByName(
+  name: string,
+): Promise<PortfolioSession | null> {
+  const col = await getSessionsCollection();
+  return col.findOne({ session: name });
+}
+
 /** Crea o actualiza el contexto de una sesión (clave: el nombre). */
 export async function upsertSession(
   rawSession: string,
@@ -233,6 +246,31 @@ export async function upsertSession(
   const result = await col.findOneAndUpdate(
     { session },
     { $set: { context, updatedAt: now }, $setOnInsert: { createdAt: now } },
+    { upsert: true, returnDocument: "after" },
+  );
+  if (!result) throw new Error("El upsert no devolvió el documento");
+  return result;
+}
+
+/** Tags del vocabulario controlado (colección `tags`; jerarquía llega en Fase 4). */
+export async function listTags(): Promise<Tag[]> {
+  const col = await getTagsCollection();
+  return col.find({}).sort({ name: 1 }).toArray();
+}
+
+/**
+ * Añade un tag al vocabulario si no existe (clave: nombre en minúsculas).
+ * Si ya existe no toca nada — el rename/merge/jerarquía es cosa de la Fase 4.
+ */
+export async function upsertTag(
+  rawName: string,
+  rawParent: string | null = null,
+): Promise<Tag> {
+  const { name, parent } = tagSchema.parse({ name: rawName, parent: rawParent });
+  const col = await getTagsCollection();
+  const result = await col.findOneAndUpdate(
+    { name },
+    { $setOnInsert: { name, parent } },
     { upsert: true, returnDocument: "after" },
   );
   if (!result) throw new Error("El upsert no devolvió el documento");
