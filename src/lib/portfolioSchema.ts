@@ -20,6 +20,12 @@ import { z } from "zod";
 
 const trimmed = z.string().trim();
 
+/**
+ * Nombre de sesión: es una carpeta bajo `blog/images/` en R2, así que solo
+ * caracteres seguros en una key (letras, números, guion y guion bajo).
+ */
+export const sessionNameSchema = trimmed.regex(/^[\w-]+$/);
+
 /** Serie a la que pertenece una imagen (díptico/tríptico). */
 export const seriesSchema = z.object({
   id: trimmed.min(1),
@@ -46,7 +52,7 @@ export const portfolioImageFieldsSchema = z.object({
   stars: z.number().int().min(0).max(5).optional(),
   portfolio: z.boolean().optional(),
   visible: z.boolean().optional(),
-  session: trimmed.min(1).nullable().optional(),
+  session: sessionNameSchema.nullable().optional(),
   series: seriesSchema.nullable().optional(),
   categories: z
     .array(z.string())
@@ -89,13 +95,20 @@ export type Tag = z.infer<typeof tagSchema>;
 /**
  * Doc de la colección `sessions` (contexto de una sesión de fotos, insumo
  * para la generación con IA). La clave `session` coincide con el campo
- * homónimo de las imágenes. CRUD se implementa en Fase 2.
+ * homónimo de las imágenes. Solo la lee insta_bot; el portfolio no la usa.
  */
 export const portfolioSessionSchema = z.object({
-  session: trimmed.min(1),
+  session: sessionNameSchema,
   context: trimmed,
   createdAt: z.date(),
   updatedAt: z.date(),
 });
 
+/** Entrada del upsert de una sesión (lo que acepta el PUT). */
+export const portfolioSessionInputSchema = portfolioSessionSchema.pick({
+  session: true,
+  context: true,
+});
+
 export type PortfolioSession = z.infer<typeof portfolioSessionSchema>;
+export type PortfolioSessionInput = z.infer<typeof portfolioSessionInputSchema>;

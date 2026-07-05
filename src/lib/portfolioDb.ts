@@ -14,18 +14,20 @@
 // La conexión es perezosa (primer uso), a diferencia de db.ts que abre SQLite
 // al importar: una caída de Atlas no debe impedir arrancar la app.
 
-import { MongoClient, type Collection } from "mongodb";
+import { MongoClient, type Collection, type Db } from "mongodb";
 import {
   portfolioImageFieldsSchema,
+  portfolioSessionInputSchema,
   type PortfolioImage,
   type PortfolioImageFields,
+  type PortfolioSession,
 } from "./portfolioSchema";
 
-export type { PortfolioImage, PortfolioImageFields };
+export type { PortfolioImage, PortfolioImageFields, PortfolioSession };
 
 let client: MongoClient | null = null;
 
-async function getCollection(): Promise<Collection<PortfolioImage>> {
+async function getDb(): Promise<Db> {
   const uri = import.meta.env.PORTFOLIO_MONGODB_URI;
   if (!uri) {
     throw new Error("PORTFOLIO_MONGODB_URI no está configurada");
@@ -34,7 +36,15 @@ async function getCollection(): Promise<Collection<PortfolioImage>> {
     client = new MongoClient(uri);
     await client.connect();
   }
-  return client.db().collection<PortfolioImage>("images");
+  return client.db();
+}
+
+async function getCollection(): Promise<Collection<PortfolioImage>> {
+  return (await getDb()).collection<PortfolioImage>("images");
+}
+
+async function getSessionsCollection(): Promise<Collection<PortfolioSession>> {
+  return (await getDb()).collection<PortfolioSession>("sessions");
 }
 
 export interface ListImagesQuery {
@@ -201,6 +211,32 @@ export async function deleteImageByUrl(url: string): Promise<boolean> {
   const col = await getCollection();
   const result = await col.deleteOne({ url });
   return result.deletedCount === 1;
+}
+
+/** Sesiones de fotos (contexto para la IA), más recientes primero (llevan prefijo de fecha). */
+export async function listSessions(): Promise<PortfolioSession[]> {
+  const col = await getSessionsCollection();
+  return col.find({}).sort({ session: -1 }).toArray();
+}
+
+/** Crea o actualiza el contexto de una sesión (clave: el nombre). */
+export async function upsertSession(
+  rawSession: string,
+  rawContext: string,
+): Promise<PortfolioSession> {
+  const { session, context } = portfolioSessionInputSchema.parse({
+    session: rawSession,
+    context: rawContext,
+  });
+  const col = await getSessionsCollection();
+  const now = new Date();
+  const result = await col.findOneAndUpdate(
+    { session },
+    { $set: { context, updatedAt: now }, $setOnInsert: { createdAt: now } },
+    { upsert: true, returnDocument: "after" },
+  );
+  if (!result) throw new Error("El upsert no devolvió el documento");
+  return result;
 }
 
 /**

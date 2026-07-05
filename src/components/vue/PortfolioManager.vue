@@ -7,7 +7,10 @@
 // guardar (primer guardado con visible:false).
 // Copia los patrones de FileManager.vue, pero contra /api/portfolio/* —
 // bucket, permisos y backend distintos a la biblioteca privada.
-import { computed, onMounted, ref } from "vue";
+// El wizard "Subir sesión" sube una tanda completa a blog/images/{sesión}/,
+// guarda el contexto en la colección `sessions` y crea el doc de cada imagen
+// con su EXIF y el campo session (visible:false, como todo insert).
+import { computed, onMounted, ref, watch } from "vue";
 import PortfolioImageForm from "./PortfolioImageForm.vue";
 
 interface PortfolioImageDoc {
@@ -172,6 +175,147 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ---------- Wizard de sesión ----------
+
+interface SessionDoc {
+  session: string;
+  context: string;
+}
+
+const wizardOpen = ref(false);
+const sessionsList = ref<SessionDoc[]>([]);
+const wizInput = ref<HTMLInputElement | null>(null);
+const wizName = ref(defaultSessionName());
+const wizContext = ref("");
+const wizFiles = ref<File[]>([]);
+const wizBusy = ref(false);
+const wizDone = ref(false);
+const wizProgress = ref({ done: 0, total: 0 });
+const wizErrors = ref<string[]>([]);
+
+/** Prefijo de fecha AAMMDD, el patrón de las sesiones existentes. */
+function defaultSessionName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${String(d.getFullYear()).slice(2)}${p(d.getMonth() + 1)}${p(d.getDate())}_`;
+}
+
+const wizNameValid = computed(() => /^[\w-]+$/.test(wizName.value.trim()));
+
+async function loadSessions() {
+  try {
+    const res = await fetch("/api/portfolio/sessions");
+    if (!res.ok) return;
+    const data = await res.json();
+    sessionsList.value = data.sessions;
+  } catch {
+    // Sin la lista, el wizard sigue sirviendo (solo pierde el autocompletado).
+  }
+}
+
+// Elegir una sesión existente precarga su contexto para poder retocarlo.
+watch(wizName, (name) => {
+  const found = sessionsList.value.find((s) => s.session === name.trim());
+  if (found) wizContext.value = found.context;
+});
+
+function openWizard() {
+  wizardOpen.value = true;
+  wizDone.value = false;
+  wizErrors.value = [];
+  wizFiles.value = [];
+  loadSessions();
+}
+
+function onWizardFiles(event: Event) {
+  const input = event.target as HTMLInputElement;
+  wizFiles.value = Array.from(input.files ?? []);
+}
+
+const WIZ_UPLOAD_ERRORS: Record<string, string> = {
+  too_large: "supera el límite de 25MB",
+  unsupported_type: "no es una imagen soportada (JPG, PNG, WebP)",
+  storage_error: "no se pudo subir al bucket",
+  invalid_fields: "tiene metadata no válida",
+  portfolio_unavailable: "no se pudo guardar en Mongo",
+};
+
+async function uploadSession() {
+  const name = wizName.value.trim();
+  if (!wizNameValid.value || wizFiles.value.length === 0 || wizBusy.value) return;
+  wizBusy.value = true;
+  wizErrors.value = [];
+  wizProgress.value = { done: 0, total: wizFiles.value.length };
+
+  try {
+    // 1. El contexto de la sesión, aunque venga vacío: crea el doc.
+    const sessionRes = await fetch("/api/portfolio/sessions", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session: name, context: wizContext.value }),
+    });
+    if (!sessionRes.ok) {
+      const data = await sessionRes.json();
+      wizErrors.value.push(
+        `No se pudo guardar la sesión: ${WIZ_UPLOAD_ERRORS[data.error] ?? data.error}.`,
+      );
+      return;
+    }
+
+    // 2. Las fotos, en secuencia: subir a R2 y crear el doc con EXIF+session.
+    for (const file of wizFiles.value) {
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("path", `blog/images/${name}`);
+        const res = await fetch("/api/portfolio/upload", {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          wizErrors.value.push(
+            `${file.name}: ${WIZ_UPLOAD_ERRORS[data.error] ?? "falló la subida"}.`,
+          );
+          continue;
+        }
+
+        const docRes = await fetch("/api/portfolio/image", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: data.url,
+            file: data.file,
+            session: name,
+            ...data.exif,
+          }),
+        });
+        if (!docRes.ok) {
+          const docData = await docRes.json();
+          wizErrors.value.push(
+            `${file.name}: subida, pero ${WIZ_UPLOAD_ERRORS[docData.error] ?? "sin doc en Mongo"}.`,
+          );
+        }
+      } catch {
+        wizErrors.value.push(`${file.name}: error de red.`);
+      } finally {
+        wizProgress.value.done += 1;
+      }
+    }
+
+    wizDone.value = true;
+    // Refresca el explorador apuntando a la carpeta de la sesión.
+    navigate(`blog/images/${name}/`);
+  } finally {
+    wizBusy.value = false;
+  }
+}
+
+function closeWizard() {
+  if (wizBusy.value) return;
+  wizardOpen.value = false;
+}
+
 onMounted(() => {
   load();
   loadCategories();
@@ -217,11 +361,17 @@ onMounted(() => {
       </nav>
       <div class="flex gap-2">
         <button
+          class="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-pink-500"
+          @click="openWizard"
+        >
+          📸 Subir sesión
+        </button>
+        <button
           :disabled="busy"
           class="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50"
           @click="uploadInput?.click()"
         >
-          {{ busy ? "Subiendo…" : "Subir imágenes" }}
+          {{ busy ? "Subiendo…" : "Subir aquí" }}
         </button>
         <input
           ref="uploadInput"
@@ -308,5 +458,157 @@ onMounted(() => {
         </figure>
       </div>
     </template>
+
+    <!-- Wizard de sesión -->
+    <div
+      v-if="wizardOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      @click.self="closeWizard"
+    >
+      <div class="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="font-semibold">📸 Subir sesión</h2>
+          <button
+            :disabled="wizBusy"
+            class="text-sm text-neutral-500 hover:text-neutral-800 disabled:opacity-40"
+            @click="closeWizard"
+          >
+            Cerrar ✕
+          </button>
+        </div>
+
+        <!-- Resumen final -->
+        <div v-if="wizDone" class="space-y-3">
+          <p class="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
+            Listo: {{ wizProgress.total - wizErrors.length }} de
+            {{ wizProgress.total }} fotos subidas a
+            <span class="font-medium">{{ wizName.trim() }}</span> (entran
+            ocultas, pendientes de revisión).
+          </p>
+          <ul
+            v-if="wizErrors.length"
+            class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700"
+          >
+            <li v-for="(e, i) in wizErrors" :key="i">{{ e }}</li>
+          </ul>
+          <div class="flex gap-2">
+            <a
+              href="/app/portfolio/revisar"
+              class="rounded-lg bg-pink-600 px-4 py-2 text-sm font-medium text-white hover:bg-pink-500"
+            >
+              ⚡ Ir a revisar
+            </a>
+            <button
+              class="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-100"
+              @click="closeWizard"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+
+        <!-- Formulario -->
+        <div v-else class="space-y-4">
+          <div>
+            <label class="mb-1 block text-sm font-medium">Sesión</label>
+            <input
+              v-model="wizName"
+              type="text"
+              list="portfolio-sessions"
+              placeholder="260705_costanera"
+              :disabled="wizBusy"
+              class="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-pink-500 focus:outline-none"
+            />
+            <datalist id="portfolio-sessions">
+              <option
+                v-for="s in sessionsList"
+                :key="s.session"
+                :value="s.session"
+              ></option>
+            </datalist>
+            <p
+              class="mt-1 text-xs"
+              :class="
+                wizName.trim() && !wizNameValid
+                  ? 'text-red-600'
+                  : 'text-neutral-500'
+              "
+            >
+              Carpeta bajo blog/images/ — solo letras, números, guion y guion
+              bajo.
+            </p>
+          </div>
+
+          <div>
+            <label class="mb-1 block text-sm font-medium">
+              Contexto de la sesión (para la IA)
+            </label>
+            <textarea
+              v-model="wizContext"
+              rows="3"
+              maxlength="2000"
+              :disabled="wizBusy"
+              placeholder="Dónde fue, qué se fotografió, detalles que no se ven en las fotos…"
+              class="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-pink-500 focus:outline-none"
+            ></textarea>
+          </div>
+
+          <div>
+            <button
+              :disabled="wizBusy"
+              class="rounded-lg border border-dashed border-neutral-400 px-4 py-2 text-sm text-neutral-600 hover:border-pink-400 disabled:opacity-50"
+              @click="wizInput?.click()"
+            >
+              {{
+                wizFiles.length
+                  ? `${wizFiles.length} foto${wizFiles.length === 1 ? "" : "s"} elegida${wizFiles.length === 1 ? "" : "s"}`
+                  : "Elegir fotos…"
+              }}
+            </button>
+            <input
+              ref="wizInput"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              class="hidden"
+              @change="onWizardFiles"
+            />
+          </div>
+
+          <!-- Progreso -->
+          <div v-if="wizBusy">
+            <div class="mb-1 text-sm text-neutral-600">
+              Subiendo… {{ wizProgress.done }}/{{ wizProgress.total }}
+            </div>
+            <div class="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+              <div
+                class="h-full rounded-full bg-pink-600 transition-all"
+                :style="{
+                  width: `${wizProgress.total ? (wizProgress.done / wizProgress.total) * 100 : 0}%`,
+                }"
+              ></div>
+            </div>
+          </div>
+          <ul
+            v-if="wizErrors.length"
+            class="max-h-32 space-y-1 overflow-y-auto rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700"
+          >
+            <li v-for="(e, i) in wizErrors" :key="i">{{ e }}</li>
+          </ul>
+
+          <button
+            :disabled="wizBusy || !wizNameValid || wizFiles.length === 0"
+            class="w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50"
+            @click="uploadSession"
+          >
+            {{
+              wizBusy
+                ? "Subiendo…"
+                : `Subir ${wizFiles.length || ""} foto${wizFiles.length === 1 ? "" : "s"}`
+            }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
