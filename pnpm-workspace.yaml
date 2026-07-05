@@ -1,0 +1,12 @@
+packages:
+  - '.'
+
+# pnpm bloquea los build scripts por defecto; los deps nativos necesitan
+# aprobación explícita o sus bindings no se compilan (mismo objetivo que el
+# allowBuilds de portfolio_2025, con la sintaxis de pnpm 10.17).
+onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - better-sqlite3
+  - esbuild
+  - exifreader
+  - sharp
