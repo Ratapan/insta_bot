@@ -277,6 +277,147 @@ export async function upsertTag(
   return result;
 }
 
+// Los nombres de tags anteriores a la migración de F5 pueden venir con
+// mayúsculas (p. ej. "Paisaje"); todas las búsquedas sobre `tags` usan esta
+// collation para no crear duplicados que solo difieren en la caja.
+const TAG_COLLATION = { locale: "es", strength: 2 } as const;
+
+export interface CategoryUsage {
+  name: string;
+  count: number;
+}
+
+/** Cuántas imágenes usan cada categoría (colección `images`, campo categories). */
+export async function categoryUsageCounts(): Promise<CategoryUsage[]> {
+  const col = await getCollection();
+  const rows = await col
+    .aggregate<{ _id: string; count: number }>([
+      { $unwind: "$categories" },
+      { $group: { _id: "$categories", count: { $sum: 1 } } },
+    ])
+    .toArray();
+  return rows
+    .map((r) => ({ name: r._id, count: r.count }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Renombra (o fusiona, si el destino ya existe como tag) una categoría en
+ * TODO el portafolio. Con apply=false es un dry-run: solo devuelve cuántas
+ * imágenes se tocarían, para que la UI confirme con el conteo delante.
+ *
+ * Al aplicar: en cada imagen se sustituye `from` por `to` conservando la
+ * posición (con dedupe si `to` ya estaba) y se recalcula la `category`
+ * derivada; en `tags` se asegura el destino (hereda el parent del origen si
+ * es nuevo), se borra el origen y sus hijos pasan a colgar del destino.
+ */
+export async function renameCategoryEverywhere(
+  rawFrom: string,
+  rawTo: string,
+  apply: boolean,
+): Promise<{ affected: number; merged: boolean }> {
+  const from = tagSchema.shape.name.parse(rawFrom);
+  const to = tagSchema.shape.name.parse(rawTo);
+  if (from === to) throw new Error("same_name");
+
+  const col = await getCollection();
+  const tcol = await getTagsCollection();
+  const toTag = await tcol.findOne({ name: to }, { collation: TAG_COLLATION });
+
+  if (!apply) {
+    const affected = await col.countDocuments({ categories: from });
+    return { affected, merged: !!toTag };
+  }
+
+  const docs = await col.find({ categories: from }).toArray();
+  const now = new Date();
+  for (const doc of docs) {
+    const categories: string[] = [];
+    for (const c of doc.categories) {
+      const mapped = c === from ? to : c;
+      if (!categories.includes(mapped)) categories.push(mapped);
+    }
+    await col.updateOne(
+      { _id: doc._id },
+      { $set: { categories, category: categories[0], updatedAt: now } },
+    );
+  }
+
+  const fromTag = await tcol.findOne({ name: from }, { collation: TAG_COLLATION });
+  if (!toTag) {
+    await tcol.updateOne(
+      { name: to },
+      { $setOnInsert: { name: to, parent: fromTag?.parent ?? null } },
+      { upsert: true },
+    );
+  }
+  if (fromTag) await tcol.deleteOne({ _id: fromTag._id });
+  await tcol.updateMany(
+    { parent: from },
+    { $set: { parent: to } },
+    { collation: TAG_COLLATION },
+  );
+  // Si el destino era hijo del origen, habría quedado colgando de sí mismo.
+  await tcol.updateOne({ name: to, parent: to }, { $set: { parent: null } });
+
+  return { affected: docs.length, merged: !!toTag };
+}
+
+/**
+ * Borra un tag del vocabulario (las imágenes que lo usan NO se tocan: la
+ * categoría queda como huérfana). Sus hijos heredan el parent del borrado.
+ */
+export async function deleteTag(rawName: string): Promise<boolean> {
+  const name = tagSchema.shape.name.parse(rawName);
+  const tcol = await getTagsCollection();
+  const tag = await tcol.findOneAndDelete({ name }, { collation: TAG_COLLATION });
+  if (!tag) return false;
+  await tcol.updateMany(
+    { parent: name },
+    { $set: { parent: tag.parent ?? null } },
+    { collation: TAG_COLLATION },
+  );
+  return true;
+}
+
+/**
+ * Mueve un tag en la jerarquía (parent=null lo hace raíz). La jerarquía es de
+ * DOS niveles estrictos: el padre debe ser raíz y un tag con hijos no puede
+ * colgar de otro. Lanza códigos string: not_found, parent_not_found,
+ * parent_invalid.
+ */
+export async function setTagParent(
+  rawName: string,
+  rawParent: string | null,
+): Promise<Tag> {
+  const name = tagSchema.shape.name.parse(rawName);
+  const parent = rawParent === null ? null : tagSchema.shape.name.parse(rawParent);
+  const tcol = await getTagsCollection();
+
+  if (parent !== null) {
+    if (parent === name) throw new Error("parent_invalid");
+    const parentTag = await tcol.findOne(
+      { name: parent },
+      { collation: TAG_COLLATION },
+    );
+    if (!parentTag) throw new Error("parent_not_found");
+    if (parentTag.parent) throw new Error("parent_invalid");
+    const children = await tcol.countDocuments(
+      { parent: name },
+      { collation: TAG_COLLATION },
+    );
+    if (children > 0) throw new Error("parent_invalid");
+  }
+
+  const updated = await tcol.findOneAndUpdate(
+    { name },
+    { $set: { parent } },
+    { collation: TAG_COLLATION, returnDocument: "after" },
+  );
+  if (!updated) throw new Error("not_found");
+  return updated;
+}
+
 /**
  * Categorías ya usadas en el portafolio (principal + etiquetas), para
  * ofrecérselas a Claude como vocabulario preferido y a la UI como sugerencias.

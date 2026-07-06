@@ -1,0 +1,24 @@
+---
+// Vocabulario controlado del portafolio: CRUD de tags con jerarquía de dos
+// niveles, renombrar/fusionar con propagación a las imágenes, y vistas de
+// salud (categorías huérfanas y tags sin uso).
+import Layout from "../../../layouts/Layout.astro";
+import PortfolioTags from "../../../components/vue/PortfolioTags.vue";
+---
+
+<Layout title="Vocabulario — InstaCaptions">
+  <div class="mb-2 flex items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold">Vocabulario</h1>
+    <a
+      href="/app/portfolio"
+      class="text-sm text-neutral-600 hover:text-pink-600"
+    >
+      ← Volver al gestor
+    </a>
+  </div>
+  <p class="mb-8 text-sm text-neutral-600">
+    Las categorías del portafolio. Renombrar o fusionar aquí actualiza todas
+    las imágenes que las usan.
+  </p>
+  <PortfolioTags client:load />
+</Layout>
