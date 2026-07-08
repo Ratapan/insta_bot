@@ -43,6 +43,12 @@ const user = Astro.locals.user;
                 Programadas
               </a>
               <a
+                href="/app/portfolio"
+                class="text-neutral-600 hover:text-neutral-900"
+              >
+                Portafolio
+              </a>
+              <a
                 href="/app/settings"
                 class="text-neutral-600 hover:text-neutral-900"
               >
@@ -51,14 +57,11 @@ const user = Astro.locals.user;
             </div>
           ) : (
             <div class="flex items-center gap-3 text-sm">
-              <a href="/login" class="text-neutral-600 hover:text-neutral-900">
-                Entrar
-              </a>
               <a
-                href="/register"
+                href="/login"
                 class="rounded-lg bg-neutral-900 px-3 py-1.5 font-medium text-white hover:bg-neutral-700"
               >
-                Crear cuenta
+                Entrar
               </a>
             </div>
           )

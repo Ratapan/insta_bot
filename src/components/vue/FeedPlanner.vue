@@ -52,8 +52,10 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Claude está saturado ahora mismo. Espera unos segundos y reinténtalo.",
   claude_parse: "La respuesta de Claude no fue válida. Reinténtalo.",
   image_fetch_failed: "No pudimos leer la imagen desde la biblioteca.",
-  image_too_large: "La imagen supera el límite de 5MB para generar captions.",
+  image_too_large: "La imagen supera el límite de 8MB para generar captions.",
   unsupported_image: "Ese archivo no es una imagen soportada.",
+  rate_limited:
+    "Has alcanzado el límite de generaciones por hora. Espera un poco antes de seguir.",
   caption_too_long: "El caption supera los 2.200 caracteres de Instagram.",
   schedule_in_past: "La fecha de programación debe estar en el futuro.",
   no_images: "Añade una imagen.",

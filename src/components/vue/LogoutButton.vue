@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { authClient } from "../../lib/auth-client";
 
 const loading = ref(false);
 
 async function logout() {
   loading.value = true;
-  await authClient.signOut();
+  await fetch("/api/logout", { method: "POST" });
   window.location.href = "/login";
 }
 </script>

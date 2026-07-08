@@ -8,9 +8,9 @@ import {
   exchangeForLongLivedToken,
   getMe,
 } from "../../../lib/instagram";
+import { getOwnerUser } from "../../../lib/ownerUser";
 
 export const GET: APIRoute = async (context) => {
-  const userId = context.locals.user!.id;
   const params = context.url.searchParams;
 
   if (params.get("error")) {
@@ -23,9 +23,14 @@ export const GET: APIRoute = async (context) => {
   const expectedState = context.cookies.get("ig_oauth_state")?.value;
   context.cookies.delete("ig_oauth_state", { path: "/" });
 
+  // El CSRF de esta ruta es el `state` (esta ruta no pasa por el guard de
+  // sesión: ver middleware). Sin cookie de state que coincida, no seguimos.
   if (!code || !state || !expectedState || state !== expectedState) {
     return context.redirect("/app/settings?error=state");
   }
+
+  // App de un solo usuario: el token se guarda para el dueño.
+  const userId = (await getOwnerUser()).id;
 
   try {
     const { accessToken: shortToken } = await exchangeCodeForToken(code);

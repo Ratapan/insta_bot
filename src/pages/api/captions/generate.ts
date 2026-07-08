@@ -10,8 +10,17 @@ import {
   normalizeImageForClaude,
 } from "../../../lib/claude";
 import { MetaApiError, getMediaById } from "../../../lib/instagram";
+import { checkRateLimit } from "../../../lib/rateLimit";
 import { getObjectAsBase64 } from "../../../lib/storage";
 import { isValidTone } from "../../../lib/tones";
+
+// Cuota por usuario: cada generación es una request pagada a Claude.
+const GENERATIONS_PER_HOUR = 20;
+const HOUR_MS = 60 * 60 * 1000;
+// Cap de lectura desde la biblioteca. No es el límite de Claude (la imagen se
+// reduce a 768px antes de enviarla): solo protege a sharp de archivos enormes
+// y coincide con el máximo de subida de storage/upload.ts (8MB).
+const MAX_LIBRARY_BYTES = 8 * 1024 * 1024;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -41,6 +50,9 @@ export const POST: APIRoute = async (context) => {
 
   if (!isValidTone(body.tone)) {
     return json({ error: "invalid_tone" }, 400);
+  }
+  if (!checkRateLimit(`captions:${userId}`, GENERATIONS_PER_HOUR, HOUR_MS)) {
+    return json({ error: "rate_limited" }, 429);
   }
   const withHashtags = body.withHashtags ?? true;
   const userContext = (body.context ?? "").slice(0, 2000);
@@ -73,7 +85,7 @@ export const POST: APIRoute = async (context) => {
       if (!isSupportedImageType(obj.contentType)) {
         return json({ error: "unsupported_image" }, 400);
       }
-      if (obj.size > 5 * 1024 * 1024) {
+      if (obj.size > MAX_LIBRARY_BYTES) {
         return json({ error: "image_too_large" }, 400);
       }
       // Redimensiona y re-encodea a JPEG antes de mandarla a Claude (ahorra tokens).

@@ -30,6 +30,31 @@ export class MetaApiError extends Error {
   }
 }
 
+/**
+ * Parsea una respuesta de la API de Instagram tolerando cuerpos no-JSON
+ * (páginas HTML de error, respuestas vacías…). Prioriza el error estructurado
+ * del body si existe; si no, cae al código HTTP.
+ */
+async function parseGraphResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  let data: (T & { error?: { message: string; code: number; type: string } }) | null =
+    null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Respuesta no-JSON: se maneja abajo con el status HTTP.
+  }
+  if (data?.error) {
+    throw new MetaApiError(data.error.message, data.error.code, data.error.type);
+  }
+  if (!res.ok || data == null) {
+    throw new MetaApiError(
+      `Respuesta inesperada de Instagram (HTTP ${res.status})`,
+    );
+  }
+  return data;
+}
+
 async function graphFetch<T>(
   path: string,
   params: Record<string, string> = {},
@@ -40,13 +65,7 @@ async function graphFetch<T>(
     url.searchParams.set(key, value);
   }
   const res = await fetch(url, init);
-  const data = (await res.json()) as T & {
-    error?: { message: string; code: number; type: string };
-  };
-  if (data.error) {
-    throw new MetaApiError(data.error.message, data.error.code, data.error.type);
-  }
-  return data;
+  return parseGraphResponse<T>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,16 +102,25 @@ export async function exchangeCodeForToken(code: string): Promise<{
       code,
     }),
   });
-  const data = (await res.json()) as {
+  // Este endpoint usa un formato de error propio (error_type/error_message en
+  // la raíz), así que no pasa por parseGraphResponse; pero igual toleramos
+  // cuerpos no-JSON para no acabar en un parse error opaco.
+  let data: {
     access_token?: string;
     user_id?: number | string;
     error_type?: string;
     code?: number;
     error_message?: string;
-  };
+  } = {};
+  try {
+    data = await res.json();
+  } catch {
+    // Respuesta no-JSON: cae al error genérico de abajo con el status HTTP.
+  }
   if (!data.access_token || data.user_id == null) {
     throw new MetaApiError(
-      data.error_message ?? "No se pudo obtener el token de Instagram",
+      data.error_message ??
+        `No se pudo obtener el token de Instagram (HTTP ${res.status})`,
       data.code,
       data.error_type,
     );
@@ -155,13 +183,7 @@ async function graphFetchAbsolute<T>(
     url.searchParams.set(key, value);
   }
   const res = await fetch(url);
-  const data = (await res.json()) as T & {
-    error?: { message: string; code: number; type: string };
-  };
-  if (data.error) {
-    throw new MetaApiError(data.error.message, data.error.code, data.error.type);
-  }
-  return data;
+  return parseGraphResponse<T>(res);
 }
 
 /** Perfil de la cuenta conectada (para mostrar el @usuario en Ajustes). */

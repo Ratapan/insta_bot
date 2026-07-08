@@ -1,6 +1,61 @@
-# Cómo obtener las credenciales de InstaCaptions
+# InstaCaptions (insta_bot)
+
+App web de un solo usuario que genera captions de Instagram con Claude y los publica directamente en una cuenta Business/Creator. Además funciona como **centro de administración de contenido del portfolio** [javiersabando.lat](https://javiersabando.lat) (repo `portfolio_2025`): subida de imágenes, conversión a WebP, extracción de EXIF y generación de metadatos bilingües con IA.
+
+**Stack:** Astro 5 (SSR) · Vue 3 (islands) · Tailwind CSS 4 · Drizzle ORM + SQLite · Cloudflare R2 · Anthropic SDK.
+
+## Funcionalidades
+
+- **Captions para posts existentes** — lee los posts recientes de Instagram, genera captions con Claude y los copia al portapapeles (la API de Instagram no permite editar captions ya publicados).
+- **Publicar nuevos posts** — sube o elige una imagen de la biblioteca, genera el caption y publica directo vía la API de Instagram. Soporta programación de posts.
+- **Biblioteca de medios** — explorador de archivos sobre un bucket R2 privado (subir, carpetas, borrar).
+- **Gestor del portfolio** (`/app/portfolio`) — administra las imágenes del sitio portfolio: pipeline subida → EXIF → WebP → metadatos bilingües generados por Claude → guardado en el Mongo del portfolio (ocultas por defecto hasta revisarlas).
+
+La autenticación es de usuario único: una sola contraseña (`APP_PASSWORD`), sin registro ni cuentas.
+
+## Puesta en marcha
+
+Requisitos: Node 20+, **pnpm 10.17**.
+
+```bash
+pnpm install
+cp .env.example .env   # rellenar según la guía de credenciales de abajo
+pnpm dev               # https://localhost:4321 (HTTPS autofirmado)
+```
+
+Las migraciones de SQLite se aplican solas al arrancar (no hay paso de migrate aparte).
+
+| Comando | Qué hace |
+| --- | --- |
+| `pnpm dev` | Servidor de desarrollo en https://localhost:4321 |
+| `pnpm build` | Build de producción a `dist/` |
+| `pnpm start` | Ejecuta el build (`node ./dist/server/entry.mjs`) |
+| `pnpm db:generate` | Genera una migración tras editar `src/db/schema.ts` |
+| `pnpm db:studio` | Drizzle Studio para inspeccionar la BD |
+| `pnpm astro check` | Type-check |
+
+> **Nota pnpm:** los deps nativos (`better-sqlite3`, `sharp`, `esbuild`, `exifreader`, `@tailwindcss/oxide`) deben estar en `onlyBuiltDependencies` de `pnpm-workspace.yaml` o pnpm se salta sus build scripts y la app falla al arrancar (`Could not locate the bindings file`). Tras añadir uno nuevo: `pnpm rebuild <pkg>`.
+
+## Estructura
+
+- `src/pages/app/*.astro` — páginas de la app (shells finos que montan islas Vue).
+- `src/pages/api/*` — API JSON: `instagram/`, `captions/`, `storage/` (biblioteca R2 propia) y `portfolio/` (gestor del portfolio).
+- `src/lib/` — wrappers de servicios externos: `instagram.ts`, `claude.ts`, `storage.ts` (R2 privado) y los módulos del portfolio (`portfolioDb.ts`, `portfolioStorage.ts`, `portfolioImage.ts`).
+- `src/middleware.ts` — guarda `/app/*` y `/api/*` con la sesión de usuario único.
+
+## Despliegue
+
+`pnpm build` + `pnpm start`. La BD SQLite vive en `DATABASE_PATH` (por defecto `./data/app.db`): en producción (Railway) necesita un volumen persistente. Definir todas las variables del `.env` en el entorno, incluida `APP_PASSWORD`. Las migraciones se aplican automáticamente en cada arranque.
+
+---
+
+# Cómo obtener las credenciales
 
 Guía actualizada (junio 2026) para rellenar el `.env`.
+
+## `APP_PASSWORD`
+
+Contraseña de acceso a la app (única cuenta; sin registro). Elige una fuerte; cambiarla invalida la sesión activa.
 
 ## `SESSION_SECRET`
 
@@ -41,10 +96,19 @@ Scopes que pide la app: `instagram_business_basic,instagram_business_content_pub
 4. Permisos: **Object Read & Write**, restringido a tu bucket. Crea el token.
 5. Cloudflare muestra el **Access Key ID** y **Secret Access Key** **una sola vez**. Cópialos a `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY`.
 
+## Gestor del portfolio (`PORTFOLIO_*`)
+
+Estas variables conectan con la infraestructura de `portfolio_2025` (son sus credenciales, no unas nuevas):
+
+- `PORTFOLIO_MONGODB_URI` — la **misma URI** que el `MONGODB_URI` del portfolio (base de datos `rtp_blog` en la URI).
+- `PORTFOLIO_R2_ACCOUNT_ID` / `PORTFOLIO_R2_ACCESS_KEY_ID` / `PORTFOLIO_R2_SECRET_ACCESS_KEY` / `PORTFOLIO_R2_BUCKET` — el bucket R2 **público** del portfolio (distinto de `insta-bot-media`, que es privado). Crea el token igual que en la sección anterior, restringido a ese bucket.
+- `PORTFOLIO_ASSETS_BASE_URL` — URL pública del bucket: `https://assets.javiersabando.lat`.
+
 ## Resumen
 
 | Variable | Origen |
 | --- | --- |
+| `APP_PASSWORD` | Contraseña que elijas (usuario único) |
 | `SESSION_SECRET` | `openssl rand -hex 32` |
 | `ANTHROPIC_API_KEY` | console.anthropic.com → Settings → API Keys |
 | `META_APP_ID` | **Instagram** App ID (Casos de uso → Personalizar → Configuración de la API; **no** el de Información básica) |
@@ -53,3 +117,6 @@ Scopes que pide la app: `instagram_business_basic,instagram_business_content_pub
 | `R2_ACCOUNT_ID` | R2 → Overview → Account Details |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 → Manage API Tokens → Create API Token |
 | `R2_BUCKET` | Nombre que diste al bucket |
+| `PORTFOLIO_MONGODB_URI` | El `MONGODB_URI` de portfolio_2025 |
+| `PORTFOLIO_R2_*` | Credenciales del bucket público del portfolio |
+| `PORTFOLIO_ASSETS_BASE_URL` | `https://assets.javiersabando.lat` |

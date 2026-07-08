@@ -36,6 +36,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Claude está saturado ahora mismo. Espera unos segundos y reinténtalo.",
   claude_parse: "La respuesta de Claude no fue válida. Reinténtalo.",
   image_fetch_failed: "No pudimos descargar la imagen del post.",
+  rate_limited:
+    "Has alcanzado el límite de generaciones por hora. Espera un poco antes de seguir.",
 };
 
 async function generate() {

@@ -1,25 +1,30 @@
 import { defineMiddleware } from "astro:middleware";
-import { auth } from "./lib/auth";
+import { getOwnerUser } from "./lib/ownerUser";
+import { COOKIE_NAME, isValidSession } from "./lib/session";
 // Arranca el scheduler de publicaciones programadas (efecto de módulo, 1 vez).
 import "./lib/scheduler";
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;
 
-  // Better Auth gestiona sus propias rutas; no hace falta resolver la sesión.
-  if (pathname.startsWith("/api/auth")) {
+  // Rutas de API abiertas (sin guard de sesión):
+  //  - /api/login: el propio login por password.
+  //  - /api/instagram/callback: retorno del OAuth de Instagram. Llega como
+  //    navegación cross-site (Meta rebota vía l.instagram.com), así que no
+  //    puede depender de que la cookie de sesión sobreviva ese salto. Su CSRF
+  //    lo protege la cookie ig_oauth_state (comparada con el `state`); el
+  //    handler resuelve el usuario dueño por su cuenta.
+  if (pathname === "/api/login" || pathname === "/api/instagram/callback") {
     return next();
   }
 
-  const sessionData = await auth.api.getSession({
-    headers: context.request.headers,
-  });
-
-  context.locals.user = sessionData?.user ?? null;
-  context.locals.session = sessionData?.session ?? null;
+  // App de un solo usuario: la sesión es una cookie firmada derivada de
+  // APP_PASSWORD y locals.user es siempre el usuario propietario.
+  const authed = isValidSession(context.cookies.get(COOKIE_NAME)?.value);
+  context.locals.user = authed ? await getOwnerUser() : null;
 
   if (pathname.startsWith("/app") || pathname.startsWith("/api")) {
-    if (!sessionData) {
+    if (!authed) {
       return pathname.startsWith("/api")
         ? new Response(JSON.stringify({ error: "No autenticado" }), {
             status: 401,
@@ -29,7 +34,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     }
   }
 
-  if ((pathname === "/login" || pathname === "/register") && sessionData) {
+  if (pathname === "/login" && authed) {
     return context.redirect("/app");
   }
 

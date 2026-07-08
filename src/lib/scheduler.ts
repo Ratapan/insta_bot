@@ -5,7 +5,7 @@
 // minuto la tabla `scheduled_post` y publica lo que ha vencido. Pensado para
 // una sola instancia (Railway); no es un sistema de colas distribuido.
 
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, gt, lte } from "drizzle-orm";
 import { db } from "./db";
 import { instagramAccount, scheduledPost } from "../db/schema";
 import { MetaApiError, refreshLongLivedToken } from "./instagram";
@@ -14,6 +14,11 @@ import { PublishError, publishToInstagram } from "./publish";
 const TICK_MS = 60 * 1000; // cada minuto
 const MAX_ATTEMPTS = 3;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+// Cada cuánto revisamos si hay tokens a punto de caducar (no hace falta más:
+// los tokens largos duran 60 días y el margen de renovación es de 7).
+const TOKEN_CHECK_MS = 6 * 60 * 60 * 1000;
+
+let lastTokenCheck = 0;
 
 // Evita arrancar dos veces (HMR de dev / dobles imports).
 const FLAG = "__igSchedulerStarted" as const;
@@ -117,10 +122,34 @@ async function publishOne(post: typeof scheduledPost.$inferSelect): Promise<void
   }
 }
 
+/**
+ * Renueva proactivamente los tokens de todas las cuentas conectadas a las que
+ * les quede menos de una semana (antes esto pasaba como efecto secundario del
+ * render de Ajustes, lo que acoplaba cargar la página a la API de Meta).
+ */
+async function refreshExpiringTokens(): Promise<void> {
+  const now = new Date();
+  const soon = new Date(now.getTime() + WEEK_MS);
+  const expiring = await db.query.instagramAccount.findMany({
+    where: and(
+      gt(instagramAccount.tokenExpiresAt, now), // aún vivo (caducado no se puede refrescar)
+      lte(instagramAccount.tokenExpiresAt, soon),
+    ),
+  });
+  for (const account of expiring) {
+    await ensureFreshToken(account);
+  }
+}
+
 async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
+    if (Date.now() - lastTokenCheck > TOKEN_CHECK_MS) {
+      lastTokenCheck = Date.now();
+      await refreshExpiringTokens();
+    }
+
     const due = await db.query.scheduledPost.findMany({
       where: and(
         eq(scheduledPost.status, "pending"),

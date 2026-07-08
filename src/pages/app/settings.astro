@@ -5,44 +5,20 @@ import InstagramConnection from "../../components/vue/InstagramConnection.vue";
 import LogoutButton from "../../components/vue/LogoutButton.vue";
 import { db } from "../../lib/db";
 import { instagramAccount } from "../../db/schema";
-import { MetaApiError, refreshLongLivedToken } from "../../lib/instagram";
 
 const user = Astro.locals.user!;
 
-let account = await db.query.instagramAccount.findFirst({
+const account = await db.query.instagramAccount.findFirst({
   where: eq(instagramAccount.userId, user.id),
 });
 
+// El refresco proactivo del token vive en el scheduler (refreshExpiringTokens);
+// aquí solo leemos. Si aun así queda poco, la UI avisa para reconectar.
 const WEEK_MS = 1000 * 60 * 60 * 24 * 7;
-const expiresIn = (a: typeof account) =>
-  a?.tokenExpiresAt ? a.tokenExpiresAt.getTime() - Date.now() : Infinity;
-
-// Auto-refresh: si al token largo le queda menos de una semana pero sigue vivo,
-// lo renovamos por otros 60 días para evitar tener que reconectar.
-if (account && expiresIn(account) > 0 && expiresIn(account) < WEEK_MS) {
-  try {
-    const now = new Date();
-    const { accessToken, expiresAt } = await refreshLongLivedToken(
-      account.accessToken,
-    );
-    await db
-      .update(instagramAccount)
-      .set({
-        accessToken,
-        tokenExpiresAt: expiresAt,
-        tokenRefreshedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(instagramAccount.userId, user.id));
-    account = { ...account, accessToken, tokenExpiresAt: expiresAt };
-  } catch (err) {
-    // Si no se puede refrescar (p. ej. token ya caducado), la UI pedirá
-    // reconectar mediante el aviso de expiresSoon.
-    if (!(err instanceof MetaApiError)) throw err;
-  }
-}
-
-const expiresSoon = expiresIn(account) < WEEK_MS;
+const expiresIn = account?.tokenExpiresAt
+  ? account.tokenExpiresAt.getTime() - Date.now()
+  : Infinity;
+const expiresSoon = expiresIn < WEEK_MS;
 
 const ERROR_MESSAGES: Record<string, string> = {
   denied: "Cancelaste la conexión con Instagram.",

@@ -1,9 +1,11 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
-// Tablas de Better Auth (user, session, account, verification).
-// Los nombres de las propiedades deben coincidir con los campos que espera
-// Better Auth; los nombres de columna van en snake_case.
+// Tablas heredadas de Better Auth (retirado: la app es de un solo usuario con
+// password en APP_PASSWORD). `user` sigue viva con una única fila propietaria
+// (ver src/lib/ownerUser.ts) porque el resto de tablas cuelgan de su id;
+// session/account/verification ya no se usan y se conservan solo para no
+// migrar.
 // ---------------------------------------------------------------------------
 
 export const user = sqliteTable("user", {
