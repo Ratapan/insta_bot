@@ -2,8 +2,8 @@
 // doc Image) y conversión a WebP.
 //
 // EXIF y privacidad: toWebp() reescribe en el WebP publicado SOLO los campos de
-// cámara (marca, modelo, exposición, focal, ISO, lente) y JAMÁS los de GPS ni
-// ubicación — las fotos del portfolio son públicas. Antes esta conversión
+// cámara (marca, modelo, exposición, focal, ISO, lente, fecha de captura) y
+// JAMÁS los de GPS ni ubicación — las fotos del portfolio son públicas. Antes esta conversión
 // borraba toda la metadata; ahora la conserva de forma SELECTIVA para que una
 // imagen del bucket se pueda recatalogar por su EXIF (ver extractExifFromUrl) y
 // para que convivan los dos linajes (WebP convertidos afuera con EXIF + los que
@@ -178,6 +178,11 @@ function cameraExif(buffer: Buffer): sharp.Exif | undefined {
   if (focal) exifIfd.FocalLength = focal;
   const lens = textString(tags.LensModel);
   if (lens) exifIfd.LensModel = lens;
+  // Fecha de captura ("YYYY:MM:DD HH:MM:SS"): permite el orden cronológico
+  // dentro de una sesión y backfill sin volver a los originales. Sin implicación
+  // de ubicación, a diferencia del GPS.
+  const shotAt = textString(tags.DateTimeOriginal);
+  if (shotAt) exifIfd.DateTimeOriginal = shotAt;
 
   const hasIfd0 = Object.keys(ifd0).length > 0;
   const hasExif = Object.keys(exifIfd).length > 0;
