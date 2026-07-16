@@ -1,0 +1,21 @@
+---
+// Lista de posts del portafolio (colección `blogs`: blog y repo). Crear, editar,
+// archivar/restaurar y eliminar. La generación con IA no entra en esta fase.
+import Layout from "../../../layouts/Layout.astro";
+import PortfolioBlogList from "../../../components/vue/PortfolioBlogList.vue";
+---
+
+<Layout title="Posts — InstaCaptions">
+  <div class="mb-2 flex items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold">Posts del portafolio</h1>
+    <a href="/app/portfolio" class="text-sm text-neutral-600 hover:text-pink-600">
+      ← Volver al gestor
+    </a>
+  </div>
+  <p class="mb-8 text-sm text-neutral-600">
+    Blogs y repos de <span class="font-medium">javiersabando.lat</span>. Los
+    borradores y archivados solo se ven aquí; el sitio publica lo que esté en
+    estado «publicado».
+  </p>
+  <PortfolioBlogList client:load />
+</Layout>
