@@ -6,6 +6,7 @@
 // order 0..n) y la sanitización del HTML ocurren en el server.
 import { computed, onMounted, ref } from "vue";
 import PortfolioImagePicker from "./PortfolioImagePicker.vue";
+import { BLOG_TONES } from "../../lib/tones";
 
 interface Slide {
   url: string;
@@ -326,6 +327,179 @@ async function save() {
   }
 }
 
+// --- Asistencias de IA por campo ---
+const aiTone = ref("narrativo");
+const aiBusy = ref<string | null>(null); // target en curso: "excerpt", "block:2", "slide:2:0"…
+const titleOptions = ref<string[] | null>(null);
+const undoAction = ref<{ text: string; restore: () => void } | null>(null);
+let undoTimer: ReturnType<typeof setTimeout> | undefined;
+
+const AI_ERRORS: Record<string, string> = {
+  invalid_fields: "Datos no válidos para generar.",
+  invalid_url: "Esa imagen no es del bucket del portafolio.",
+  image_fetch_failed: "No se pudo leer la imagen para el caption.",
+  rate_limited: "Llegaste al límite de generaciones por hora. Espera un rato.",
+  claude_unavailable: "La IA no respondió. ¿Está configurada la API key?",
+  generation_parse: "La IA devolvió algo inesperado. Prueba de nuevo.",
+};
+function aiMessageFor(code: string): string {
+  return AI_ERRORS[code] ?? "No se pudo generar. Inténtalo de nuevo.";
+}
+
+function offerUndo(text: string, restore: () => void) {
+  undoAction.value = { text, restore };
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => (undoAction.value = null), 6000);
+}
+function runUndo() {
+  undoAction.value?.restore();
+  undoAction.value = null;
+}
+
+const stripHtml = (html: string) =>
+  html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+/** El content del post como texto plano (para las asistencias de texto). */
+function contentAsText(): string {
+  const parts: string[] = [];
+  for (const b of blocks.value) {
+    if (b.type === "text") {
+      const t = stripHtml(b.value ?? "");
+      if (t) parts.push(t);
+    } else if (b.type === "image") {
+      parts.push(`[imagen${b.caption ? `: ${b.caption}` : ""}]`);
+    } else if (b.type === "slide") {
+      const caps = (b.slides ?? []).map((s) => s.caption).filter(Boolean);
+      parts.push(`[galería${caps.length ? `: ${caps.join("; ")}` : ""}]`);
+    } else if (b.type === "video") {
+      parts.push("[video]");
+    } else if (b.type === "code") {
+      parts.push("[código]");
+    }
+  }
+  return parts.join("\n\n");
+}
+
+/** Texto plano del último bloque de texto antes de `index` (para el caption). */
+function precedingTextFor(index: number): string | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const b = blocks.value[i];
+    if (b.type === "text") {
+      const t = stripHtml(b.value ?? "");
+      if (t) return t;
+    }
+  }
+  return undefined;
+}
+
+async function callAssist(
+  target: string,
+  body: Record<string, unknown>,
+): Promise<unknown | null> {
+  aiBusy.value = target;
+  try {
+    const res = await fetch("/api/portfolio/blog-assist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(aiMessageFor(data.error));
+      return null;
+    }
+    return data.suggestion;
+  } catch {
+    showToast(aiMessageFor("unknown"));
+    return null;
+  } finally {
+    aiBusy.value = null;
+  }
+}
+
+async function aiField(kind: "excerpt" | "description" | "tags") {
+  const suggestion = await callAssist(kind, {
+    kind,
+    title: title.value,
+    contentText: contentAsText(),
+    tone: kind === "excerpt" ? aiTone.value : undefined,
+  });
+  if (suggestion == null) return;
+  if (kind === "excerpt" && typeof suggestion === "string") {
+    const prev = excerpt.value;
+    excerpt.value = suggestion;
+    if (prev.trim()) offerUndo("Extracto reemplazado.", () => (excerpt.value = prev));
+  } else if (kind === "description" && typeof suggestion === "string") {
+    const prev = description.value;
+    description.value = suggestion;
+    if (prev.trim()) offerUndo("Descripción reemplazada.", () => (description.value = prev));
+  } else if (kind === "tags" && Array.isArray(suggestion)) {
+    const prev = [...tags.value];
+    tags.value = [...new Set(suggestion.map(String))];
+    if (prev.length) offerUndo("Tags reemplazados.", () => (tags.value = prev));
+  }
+}
+
+async function aiTitles() {
+  const suggestion = await callAssist("title", {
+    kind: "title",
+    title: title.value,
+    contentText: contentAsText(),
+    tone: aiTone.value,
+  });
+  if (Array.isArray(suggestion) && suggestion.length) {
+    titleOptions.value = suggestion.map(String);
+  }
+}
+function pickTitle(t: string) {
+  const prev = title.value;
+  title.value = t;
+  titleOptions.value = null;
+  if (prev.trim()) offerUndo("Título reemplazado.", () => (title.value = prev));
+}
+
+async function aiCaption(blockIndex: number, slideIndex: number | null = null) {
+  const block = blocks.value[blockIndex];
+  const url = slideIndex == null ? block.url : block.slides?.[slideIndex]?.url;
+  if (!url) {
+    showToast("Elige una imagen primero.");
+    return;
+  }
+  const target = slideIndex == null ? `block:${blockIndex}` : `slide:${blockIndex}:${slideIndex}`;
+  const current = slideIndex == null ? block.caption : block.slides![slideIndex].caption;
+  const currentEn = slideIndex == null ? block.caption_en : block.slides![slideIndex].caption_en;
+
+  const suggestion = await callAssist(target, {
+    kind: "image_caption",
+    url,
+    tone: aiTone.value,
+    postTitle: title.value || undefined,
+    postExcerpt: excerpt.value || undefined,
+    precedingText: precedingTextFor(blockIndex) || undefined,
+    currentCaption: current || undefined,
+  });
+  if (!suggestion || typeof suggestion !== "object") return;
+  const cap = suggestion as { caption?: string; caption_en?: string };
+  if (!cap.caption) return;
+
+  if (slideIndex == null) {
+    block.caption = cap.caption;
+    block.caption_en = cap.caption_en;
+  } else {
+    block.slides![slideIndex].caption = cap.caption;
+    block.slides![slideIndex].caption_en = cap.caption_en;
+  }
+  offerUndo("Caption generado.", () => {
+    if (slideIndex == null) {
+      block.caption = current;
+      block.caption_en = currentEn;
+    } else {
+      block.slides![slideIndex].caption = current;
+      block.slides![slideIndex].caption_en = currentEn;
+    }
+  });
+}
+
 onMounted(() => {
   if (isEdit.value) loadBlog();
 });
@@ -362,16 +536,65 @@ onMounted(() => {
         aquí y se perderá{{ droppedBlocks === 1 ? "" : "n" }} si guardas.
       </p>
 
+      <!-- Barra de asistencias de IA -->
+      <div
+        class="flex flex-wrap items-center gap-2 rounded-xl border border-pink-200 bg-pink-50 p-3 text-sm"
+      >
+        <span class="font-medium text-pink-800">✨ Asistencias de IA</span>
+        <label class="flex items-center gap-1 text-neutral-700">
+          Tono:
+          <select
+            v-model="aiTone"
+            class="rounded-lg border border-neutral-300 px-2 py-1 text-sm focus:border-pink-500 focus:outline-none"
+          >
+            <option v-for="t in BLOG_TONES" :key="t.id" :value="t.id">{{ t.label }}</option>
+          </select>
+        </label>
+        <span class="text-xs text-neutral-500">Aplica a título, extracto y captions.</span>
+      </div>
+
       <!-- Metadatos -->
       <section class="space-y-4 rounded-xl border border-neutral-200 bg-white p-4">
         <div>
-          <label class="mb-1 block text-sm font-medium">Título</label>
+          <div class="mb-1 flex items-center gap-2">
+            <label class="block text-sm font-medium">Título</label>
+            <button
+              type="button"
+              :disabled="aiBusy !== null"
+              class="rounded border border-pink-300 px-2 py-0.5 text-xs font-medium text-pink-700 hover:bg-pink-50 disabled:opacity-40"
+              @click="aiTitles"
+            >
+              {{ aiBusy === "title" ? "✨…" : "✨ Sugerir" }}
+            </button>
+          </div>
           <input
             v-model="title"
             type="text"
             maxlength="200"
             class="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-pink-500 focus:outline-none"
           />
+          <div
+            v-if="titleOptions"
+            class="mt-2 space-y-1 rounded-lg border border-pink-200 bg-pink-50 p-2"
+          >
+            <p class="text-xs text-neutral-600">Elige un título:</p>
+            <button
+              v-for="(t, i) in titleOptions"
+              :key="i"
+              type="button"
+              class="block w-full rounded px-2 py-1 text-left text-sm hover:bg-white"
+              @click="pickTitle(t)"
+            >
+              {{ t }}
+            </button>
+            <button
+              type="button"
+              class="text-xs text-neutral-500 hover:underline"
+              @click="titleOptions = null"
+            >
+              Descartar
+            </button>
+          </div>
         </div>
 
         <div>
@@ -393,7 +616,17 @@ onMounted(() => {
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium">Extracto</label>
+          <div class="mb-1 flex items-center gap-2">
+            <label class="block text-sm font-medium">Extracto</label>
+            <button
+              type="button"
+              :disabled="aiBusy !== null"
+              class="rounded border border-pink-300 px-2 py-0.5 text-xs font-medium text-pink-700 hover:bg-pink-50 disabled:opacity-40"
+              @click="aiField('excerpt')"
+            >
+              {{ aiBusy === "excerpt" ? "✨…" : "✨ Sugerir" }}
+            </button>
+          </div>
           <textarea
             v-model="excerpt"
             rows="2"
@@ -403,7 +636,17 @@ onMounted(() => {
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium">Descripción (opcional)</label>
+          <div class="mb-1 flex items-center gap-2">
+            <label class="block text-sm font-medium">Descripción (opcional)</label>
+            <button
+              type="button"
+              :disabled="aiBusy !== null"
+              class="rounded border border-pink-300 px-2 py-0.5 text-xs font-medium text-pink-700 hover:bg-pink-50 disabled:opacity-40"
+              @click="aiField('description')"
+            >
+              {{ aiBusy === "description" ? "✨…" : "✨ SEO" }}
+            </button>
+          </div>
           <textarea
             v-model="description"
             rows="2"
@@ -516,7 +759,17 @@ onMounted(() => {
 
         <!-- Tags -->
         <div>
-          <label class="mb-1 block text-sm font-medium">Tags</label>
+          <div class="mb-1 flex items-center gap-2">
+            <label class="block text-sm font-medium">Tags</label>
+            <button
+              type="button"
+              :disabled="aiBusy !== null"
+              class="rounded border border-pink-300 px-2 py-0.5 text-xs font-medium text-pink-700 hover:bg-pink-50 disabled:opacity-40"
+              @click="aiField('tags')"
+            >
+              {{ aiBusy === "tags" ? "✨…" : "✨ Sugerir" }}
+            </button>
+          </div>
           <div class="flex flex-wrap items-center gap-1.5">
             <span
               v-for="(t, i) in tags"
@@ -619,15 +872,32 @@ onMounted(() => {
                   {{ b.url ? "Cambiar imagen" : "Elegir imagen" }}
                 </button>
               </div>
+              <div class="flex items-center gap-2">
+                <input
+                  v-model="b.caption"
+                  type="text"
+                  placeholder="Pie de foto (opcional)"
+                  class="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-pink-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  title="Generar pie editorial bilingüe"
+                  :disabled="aiBusy !== null || !b.url"
+                  class="shrink-0 rounded border border-pink-300 px-2 py-1.5 text-xs font-medium text-pink-700 hover:bg-pink-50 disabled:opacity-40"
+                  @click="aiCaption(i)"
+                >
+                  {{ aiBusy === `block:${i}` ? "✨…" : "✨" }}
+                </button>
+              </div>
               <input
-                v-model="b.caption"
+                v-model="b.caption_en"
                 type="text"
-                placeholder="Pie de foto (opcional)"
-                class="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-pink-500 focus:outline-none"
+                placeholder="Pie en inglés (opcional)"
+                class="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-600 focus:border-pink-500 focus:outline-none"
               />
               <p class="text-xs text-neutral-500">
                 El pie y los datos técnicos se completan desde la galería si la imagen está
-                catalogada.
+                catalogada. ✨ genera un pie editorial bilingüe.
               </p>
             </div>
 
@@ -657,11 +927,28 @@ onMounted(() => {
                   >
                     ✕
                   </button>
+                  <div class="mt-1 flex items-center gap-1">
+                    <input
+                      v-model="s.caption"
+                      type="text"
+                      placeholder="Pie"
+                      class="w-full rounded border border-neutral-300 px-2 py-1 text-xs focus:border-pink-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      title="Generar pie editorial bilingüe"
+                      :disabled="aiBusy !== null"
+                      class="shrink-0 rounded border border-pink-300 px-1.5 py-1 text-xs font-medium text-pink-700 hover:bg-pink-50 disabled:opacity-40"
+                      @click="aiCaption(i, si)"
+                    >
+                      {{ aiBusy === `slide:${i}:${si}` ? "…" : "✨" }}
+                    </button>
+                  </div>
                   <input
-                    v-model="s.caption"
+                    v-model="s.caption_en"
                     type="text"
-                    placeholder="Pie"
-                    class="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs focus:border-pink-500 focus:outline-none"
+                    placeholder="Pie (EN)"
+                    class="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 focus:border-pink-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -717,6 +1004,17 @@ onMounted(() => {
 
     <!-- Selector de imágenes -->
     <PortfolioImagePicker :open="pickerOpen" @select="onPick" @close="pickerOpen = false" />
+
+    <!-- Deshacer (asistencias de IA) -->
+    <div
+      v-if="undoAction"
+      class="fixed bottom-16 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-neutral-900 px-4 py-2 text-sm text-white shadow-lg"
+    >
+      <span>{{ undoAction.text }}</span>
+      <button class="font-medium text-pink-300 hover:text-pink-200" @click="runUndo">
+        Deshacer
+      </button>
+    </div>
 
     <!-- Aviso flotante -->
     <div
