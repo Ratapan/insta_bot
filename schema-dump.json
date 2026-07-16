@@ -1,0 +1,597 @@
+{
+  "users": {
+    "documentCountSampled": 2,
+    "schema": {
+      "_id": {
+        "types": [
+          "ObjectId"
+        ],
+        "optional": false
+      },
+      "username": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "email": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "password": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "role": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "isActive": {
+        "types": [
+          "boolean"
+        ],
+        "optional": false
+      },
+      "createdAt": {
+        "types": [
+          "Date"
+        ],
+        "optional": false
+      },
+      "updatedAt": {
+        "types": [
+          "Date"
+        ],
+        "optional": false
+      },
+      "__v": {
+        "types": [
+          "number"
+        ],
+        "optional": false
+      }
+    },
+    "example": {
+      "_id": "6848ee854e080e0d24be0a04",
+      "username": "admin",
+      "email": "admin@ratapan.dev",
+      "password": "$2b$12$g8aLAMq94Pg8Yn5E5X99gOmhBuXvUbiMlbjZ0wdQzDiWaKmzUmzl.",
+      "role": "admin",
+      "isActive": true,
+      "createdAt": "2025-06-11T02:48:37.989Z",
+      "updatedAt": "2025-06-11T02:48:37.989Z",
+      "__v": 0
+    }
+  },
+  "blogs": {
+    "documentCountSampled": 3,
+    "schema": {
+      "_id": {
+        "types": [
+          "ObjectId"
+        ],
+        "optional": false
+      },
+      "title": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "slug": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "excerpt": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "status": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "mainImage": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "content": {
+        "types": [
+          "array<object>"
+        ],
+        "optional": false
+      },
+      "publishedAt": {
+        "types": [
+          "Date",
+          "string"
+        ],
+        "optional": false
+      },
+      "createdAt": {
+        "types": [
+          "Date",
+          "string"
+        ],
+        "optional": false
+      },
+      "updatedAt": {
+        "types": [
+          "Date",
+          "string"
+        ],
+        "optional": false
+      },
+      "type": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "description": {
+        "types": [
+          "string"
+        ],
+        "optional": true
+      },
+      "images": {
+        "types": [
+          "array<string>",
+          "array"
+        ],
+        "optional": true
+      },
+      "tags": {
+        "types": [
+          "array<string>"
+        ],
+        "optional": true
+      },
+      "githubUrl": {
+        "types": [
+          "string"
+        ],
+        "optional": true
+      },
+      "demoUrl": {
+        "types": [
+          "string"
+        ],
+        "optional": true
+      },
+      "technologies": {
+        "types": [
+          "array"
+        ],
+        "optional": true
+      }
+    },
+    "example": {
+      "_id": "695aa490d3feefc41a771e52",
+      "title": "Chiloé: El despertar de una pasión fotográfica",
+      "slug": "chiloe-despertar-pasion-fotografica",
+      "excerpt": "Un viaje a la isla mágica que transformó mi forma de ver el mundo a través del lente.",
+      "status": "published",
+      "mainImage": "https://assets.javiersabando.lat/blog/images/250100_chiloe/P1120847.jpg",
+      "content": [
+        {
+          "type": "text",
+          "order": 1,
+          "value": "En enero del 2025, emprendí un viaje hacia el sur de Chile, específicamente al archipiélago de Chiloé. Lo que comenzó como unas vacaciones para desconectar, terminó convirtiéndose en el punto de partida de una nueva obsesión: la fotografía."
+        },
+        {
+          "type": "image",
+          "order": 2,
+          "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/P1110253.jpg",
+          "caption": "Un cisne de cuello negro rompe la quietud del agua, primer encuentro con la fauna que define el ritmo calmo de Chiloé."
+        },
+        {
+          "type": "text",
+          "order": 3,
+          "value": "La luz en Chiloé tiene una cualidad especial. Los días nublados actúan como un difusor natural gigante, suavizando las sombras y saturando los colores de los palafitos y las iglesias de madera. Fue aquí donde empecé a entender realmente cómo la luz afecta una imagen."
+        },
+        {
+          "type": "image",
+          "order": 4,
+          "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/P1110782.jpg",
+          "caption": "El Una lancha avanza sobre el mar calmo mientras su tripulante navega en silencio, supongo que la experiencia lo lleva contantemente al estado de flow."
+        },
+        {
+          "type": "text",
+          "order": 5,
+          "value": "Caminar por los muelles y senderos con la cámara en mano me obligó a observar con más detención. Ya no solo miraba el paisaje, sino que buscaba composiciones, líneas guía y momentos únicos. Cada foto que tomaba era un intento de capturar no solo lo que veía, sino lo que sentía en ese momento, una calma que se sentía en cada paso."
+        },
+        {
+          "type": "text",
+          "order": 6,
+          "value": "A continuación, comparto una selección de las imágenes que marcaron este viaje y este comienzo."
+        },
+        {
+          "type": "slide",
+          "order": 7,
+          "slides": [
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/P1120862.jpg",
+              "caption": "La línea donde tierra y mar se confunden, un paisaje que invita a detenerse antes de disparar."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090438.jpg",
+              "caption": ""
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090500.jpg",
+              "caption": ""
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090506.jpg",
+              "caption": "Un ave permanece inmóvil entre rocas cubiertas de algas, en equilibrio constante entre tierra y agua, leyendo el entorno antes de dar el siguiente paso."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090563.jpg",
+              "caption": "Desde el muelle, el paisaje se ordena en capas: agua, cielo y estructuras que resisten al clima."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090696.jpg",
+              "caption": "Dos bailarines se enfrentan en plena danza, donde cada gesto, pañuelo y mirada sostiene una tradición que se transmite más por el cuerpo que por las palabras."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090701.jpg",
+              "caption": "La danza se despliega sobre el escenario con energía contenida, transformando el espacio en un punto de encuentro entre identidad, ritmo y memoria colectiva."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090711.jpg",
+              "caption": "Reflejos suaves que duplican el paisaje y refuerzan la calma del momento."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090776.jpg",
+              "caption": "Un grupo de pingüinos asciende por la roca como si siguiera una coreografía aprendida de memoria, repitiendo un ritual que ocurre mucho antes de que alguien llegue con una cámara."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1090812.jpg",
+              "caption": ""
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1100115.jpg",
+              "caption": ""
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1100179.jpg",
+              "caption": "Suspendido sobre el bosque, el columpio ofrece una pausa improbable: un momento de vértigo y silencio donde la vista se pierde y el tiempo afloja."
+            },
+            {
+              "imageUrl": "https://assets.javiersabando.lat/blog/images/250100_chiloe/_1100293.jpg",
+              "caption": ""
+            }
+          ]
+        }
+      ],
+      "publishedAt": "2026-01-03T12:00:00.000Z",
+      "createdAt": "2026-01-04T00:00:00.000Z",
+      "updatedAt": "2026-01-04T00:00:00.000Z",
+      "type": "blog"
+    }
+  },
+  "sessions": {
+    "documentCountSampled": 0,
+    "schema": {},
+    "example": null
+  },
+  "repos": {
+    "documentCountSampled": 3,
+    "schema": {
+      "_id": {
+        "types": [
+          "ObjectId"
+        ],
+        "optional": false
+      },
+      "title": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "slug": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "description": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "content": {
+        "types": [
+          "array<object>"
+        ],
+        "optional": false
+      },
+      "images": {
+        "types": [
+          "array<string>"
+        ],
+        "optional": false
+      },
+      "githubUrl": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "demoUrl": {
+        "types": [
+          "string"
+        ],
+        "optional": true
+      },
+      "technologies": {
+        "types": [
+          "array<string>"
+        ],
+        "optional": false
+      },
+      "status": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "__v": {
+        "types": [
+          "number"
+        ],
+        "optional": false
+      },
+      "createdAt": {
+        "types": [
+          "Date"
+        ],
+        "optional": false
+      },
+      "updatedAt": {
+        "types": [
+          "Date"
+        ],
+        "optional": false
+      }
+    },
+    "example": {
+      "_id": "69267097d5ea749d9d2cd17d",
+      "title": "Portfolio Website",
+      "slug": "portfolio-website",
+      "description": "A modern portfolio website built with Nuxt 3, featuring a blog and project showcase.",
+      "content": [
+        {
+          "type": "text",
+          "order": 0,
+          "value": "<p>A comprehensive portfolio showcasing modern web development practices.</p>",
+          "_id": "69267097d5ea749d9d2cd17e"
+        }
+      ],
+      "images": [
+        "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=450&fit=crop"
+      ],
+      "githubUrl": "https://github.com/example/portfolio",
+      "demoUrl": "https://example.com",
+      "technologies": [
+        "Vue 3",
+        "Nuxt 3",
+        "MongoDB",
+        "TypeScript",
+        "Tailwind CSS"
+      ],
+      "status": "published",
+      "__v": 0,
+      "createdAt": "2025-11-26T03:14:31.401Z",
+      "updatedAt": "2025-11-26T03:14:31.401Z"
+    }
+  },
+  "bloglikes": {
+    "documentCountSampled": 0,
+    "schema": {},
+    "example": null
+  },
+  "tags": {
+    "documentCountSampled": 1,
+    "schema": {
+      "_id": {
+        "types": [
+          "ObjectId"
+        ],
+        "optional": false
+      },
+      "name": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "parent": {
+        "types": [
+          "null"
+        ],
+        "optional": false
+      },
+      "__v": {
+        "types": [
+          "number"
+        ],
+        "optional": false
+      }
+    },
+    "example": {
+      "_id": "6878675dc0d1ec7d4ae5eb1e",
+      "name": "Paisaje",
+      "parent": null,
+      "__v": 0
+    }
+  },
+  "images": {
+    "documentCountSampled": 25,
+    "schema": {
+      "_id": {
+        "types": [
+          "ObjectId"
+        ],
+        "optional": false
+      },
+      "url": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "file": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "categories": {
+        "types": [
+          "array<string>"
+        ],
+        "optional": false
+      },
+      "category": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "caption": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "footer": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "footer_en": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "stars": {
+        "types": [
+          "number"
+        ],
+        "optional": false
+      },
+      "portfolio": {
+        "types": [
+          "boolean"
+        ],
+        "optional": false
+      },
+      "visible": {
+        "types": [
+          "boolean"
+        ],
+        "optional": false
+      },
+      "focal": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "apertura": {
+        "types": [
+          "number"
+        ],
+        "optional": false
+      },
+      "iso": {
+        "types": [
+          "number"
+        ],
+        "optional": false
+      },
+      "velocidad": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "camera": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      },
+      "lens": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      }
+    },
+    "example": {
+      "_id": "69718ce04050dc7d054a4e23",
+      "url": "https://assets.javiersabando.lat/blog/images/250100_chiloe/P1120847.jpg",
+      "file": "P1120847.jpg",
+      "categories": [
+        "marítimo",
+        "barco",
+        "paisaje",
+        "transporte"
+      ],
+      "category": "marítimo",
+      "caption": "La imagen muestra un barco de pasajeros en navegación sobre un cuerpo de agua amplio y tranquilo. Al fondo se observa una línea costera con vegetación y algunas construcciones dispersas. El cielo tiene una cobertura parcial de nubes y el barco está en dirección hacia el frente manteniendo un desplazamiento estable.",
+      "footer": "Barco de pasajeros navegando sobre aguas tranquilas cerca de la costa.",
+      "footer_en": "Passenger boat sailing on calm waters near the coast.",
+      "stars": 0,
+      "portfolio": false,
+      "visible": true,
+      "focal": "27 mm",
+      "apertura": 8,
+      "iso": 100,
+      "velocidad": "1/250",
+      "camera": "Panasonic DMC-FZ300",
+      "lens": "N/A"
+    }
+  },
+  "metrics": {
+    "documentCountSampled": 1,
+    "schema": {
+      "_id": {
+        "types": [
+          "ObjectId"
+        ],
+        "optional": false
+      },
+      "hello": {
+        "types": [
+          "string"
+        ],
+        "optional": false
+      }
+    },
+    "example": {
+      "_id": "6848ed0c0bb0b0fb09fea369",
+      "hello": "world"
+    }
+  }
+}

@@ -29,7 +29,10 @@ export type { PortfolioImage, PortfolioImageFields, PortfolioSession, Tag };
 
 let client: MongoClient | null = null;
 
-async function getDb(): Promise<Db> {
+// Exportada para que otras capas (p. ej. portfolioBlogDb) reutilicen la MISMA
+// conexión perezosa en vez de abrir un segundo cliente contra la Mongo del
+// portfolio.
+export async function getDb(): Promise<Db> {
   const uri = import.meta.env.PORTFOLIO_MONGODB_URI;
   if (!uri) {
     throw new Error("PORTFOLIO_MONGODB_URI no está configurada");

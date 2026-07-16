@@ -1,8 +1,17 @@
-// Procesado de imágenes destinadas al portafolio: extracción EXIF (para los
-// campos técnicos del doc Image) y conversión a WebP.
+// Procesado de imágenes del portafolio: extracción EXIF (campos técnicos del
+// doc Image) y conversión a WebP.
 //
-// IMPORTANTE: extraer el EXIF del buffer ORIGINAL, antes de convertir —
-// sharp elimina la metadata al re-encodear, así que el orden importa.
+// EXIF y privacidad: toWebp() reescribe en el WebP publicado SOLO los campos de
+// cámara (marca, modelo, exposición, focal, ISO, lente) y JAMÁS los de GPS ni
+// ubicación — las fotos del portfolio son públicas. Antes esta conversión
+// borraba toda la metadata; ahora la conserva de forma SELECTIVA para que una
+// imagen del bucket se pueda recatalogar por su EXIF (ver extractExifFromUrl) y
+// para que convivan los dos linajes (WebP convertidos afuera con EXIF + los que
+// genera la app) en "WebP con metadata de cámara, sin GPS".
+//
+// La extracción para el doc de Mongo se hace sobre el buffer ORIGINAL
+// (extractExif), no sobre el WebP: el original trae el EXIF completo, así el
+// orden de subida (EXIF → WebP) no depende de qué preserve sharp.
 
 import ExifReader from "exifreader";
 import sharp from "sharp";
@@ -83,11 +92,111 @@ export function extractExif(buffer: Buffer): ExifFields {
 }
 
 /**
- * Convierte al WebP que se publica en el bucket: orientación EXIF aplicada,
- * lado largo ≤2560px, calidad 80.
+ * Descarga un WebP público y le extrae el EXIF. Para recatalogar imágenes
+ * huérfanas (están en R2 pero no en la colección `images`) desde el selector.
+ * Lanza si la descarga falla; si el WebP no trae EXIF devuelve {} (best-effort).
+ */
+export async function extractExifFromUrl(url: string): Promise<ExifFields> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("exif_fetch_failed");
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return extractExif(buffer);
+}
+
+// --- EXIF de cámara para el WebP (sin GPS) ----------------------------------
+
+// Tipo laxo: exifreader tipa los tags como una unión amplia (XmpTag, RationalTag…)
+// cuyos `value` no coinciden; aquí solo leemos description/value de forma segura.
+type RawExifTag = { description?: unknown; value?: unknown };
+
+const RATIONAL = /^\d+\/\d+$/;
+
+/** "1/250" tal cual; un decimal ("2.8") → racional ("2800/1000"). */
+function rationalString(tag: RawExifTag | undefined): string | undefined {
+  if (!tag) return undefined;
+  const desc = tag.description != null ? String(tag.description) : "";
+  if (RATIONAL.test(desc)) return desc;
+
+  const value = (tag as { value?: unknown }).value;
+  // exifreader suele dar los racionales como [numerador, denominador].
+  if (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    typeof value[0] === "number" &&
+    typeof value[1] === "number" &&
+    value[1] !== 0
+  ) {
+    return `${value[0]}/${value[1]}`;
+  }
+
+  const num = Number.parseFloat(desc);
+  if (!Number.isFinite(num)) return undefined;
+  if (Number.isInteger(num)) return `${num}/1`;
+  return `${Math.round(num * 1000)}/1000`;
+}
+
+function intString(tag: RawExifTag | undefined): string | undefined {
+  if (!tag) return undefined;
+  const n = Number.parseInt(String(tag.description ?? ""), 10);
+  return Number.isFinite(n) ? String(n) : undefined;
+}
+
+function textString(tag: RawExifTag | undefined): string | undefined {
+  const s = tag?.description;
+  if (typeof s === "string" && s.trim() !== "") return s.trim();
+  return undefined;
+}
+
+/**
+ * Construye el objeto EXIF para sharp.withExif con SOLO los campos de cámara.
+ * Nunca incluye IFD3 (GPS), así que la ubicación no puede filtrarse. Devuelve
+ * undefined si el original no trae ningún campo de cámara.
+ */
+function cameraExif(buffer: Buffer): sharp.Exif | undefined {
+  let tags: ExifReader.Tags;
+  try {
+    tags = ExifReader.load(buffer);
+  } catch {
+    return undefined;
+  }
+
+  const ifd0: Record<string, string> = {};
+  const exifIfd: Record<string, string> = {};
+
+  const make = textString(tags.Make);
+  if (make) ifd0.Make = make;
+  const model = textString(tags.Model);
+  if (model) ifd0.Model = model;
+
+  const exposure = rationalString(tags.ExposureTime);
+  if (exposure) exifIfd.ExposureTime = exposure;
+  const fnumber = rationalString(tags.FNumber);
+  if (fnumber) exifIfd.FNumber = fnumber;
+  const iso = intString(tags.ISOSpeedRatings);
+  if (iso) exifIfd.ISOSpeedRatings = iso;
+  const focal = rationalString(tags.FocalLength);
+  if (focal) exifIfd.FocalLength = focal;
+  const lens = textString(tags.LensModel);
+  if (lens) exifIfd.LensModel = lens;
+
+  const hasIfd0 = Object.keys(ifd0).length > 0;
+  const hasExif = Object.keys(exifIfd).length > 0;
+  if (!hasIfd0 && !hasExif) return undefined;
+
+  // IFD0 = imagen principal (Make/Model); IFD2 = sub-IFD Exif (exposición, etc.).
+  const exif: sharp.Exif = {};
+  if (hasIfd0) exif.IFD0 = ifd0;
+  if (hasExif) exif.IFD2 = exifIfd;
+  return exif;
+}
+
+/**
+ * Convierte al WebP que se publica en el bucket: orientación EXIF aplicada
+ * (y horneada — no queda tag Orientation que provoque doble rotación), lado
+ * largo ≤2560px, calidad 80, y EXIF de cámara SIN GPS (ver comentario cabecera).
  */
 export async function toWebp(buffer: Buffer): Promise<Buffer> {
-  return sharp(buffer)
+  const pipeline = sharp(buffer)
     .rotate()
     .resize({
       width: MAX_PUBLISH_EDGE,
@@ -95,6 +204,10 @@ export async function toWebp(buffer: Buffer): Promise<Buffer> {
       fit: "inside",
       withoutEnlargement: true,
     })
-    .webp({ quality: WEBP_QUALITY })
-    .toBuffer();
+    .webp({ quality: WEBP_QUALITY });
+
+  const exif = cameraExif(buffer);
+  if (exif) pipeline.withExif(exif);
+
+  return pipeline.toBuffer();
 }
