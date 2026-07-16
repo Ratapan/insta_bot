@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 InstaCaptions: a single-user web app that generates Instagram captions with Claude and publishes them directly, and doubles as the content admin for the owner's portfolio site (portfolio_2025). Astro 5 (SSR), Vue 3 islands, Tailwind CSS 4, Drizzle ORM + SQLite, Cloudflare R2. Auth is a single password (`APP_PASSWORD`) — no accounts or registration. UI copy and code comments are in Spanish — match that when editing.
 
-The README.md is the authoritative setup guide (Meta app config, R2 config, Railway deploy). Read it before touching the Instagram OAuth or storage flows.
+The README.md is the authoritative setup guide (Meta app config, R2 config, Railway deploy); `docs/meta-instagram-setup.md` covers the Meta app step by step, local HTTPS, and troubleshooting. Read them before touching the Instagram OAuth or storage flows.
 
 ## Commands
 
