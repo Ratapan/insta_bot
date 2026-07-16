@@ -310,10 +310,12 @@ async function save() {
       return;
     }
     // Edición: refresca desde la respuesta normalizada y actualiza la URL si el
-    // slug cambió (sin recargar).
+    // slug cambió (sin recargar). Hay que leer el slug anterior ANTES de
+    // applyLoaded, que ya deja currentSlug en el nuevo valor.
+    const prevSlug = currentSlug.value;
     const savedSlug = data.blog.slug;
     applyLoaded(data.blog);
-    if (savedSlug !== currentSlug.value) {
+    if (savedSlug !== prevSlug) {
       window.history.replaceState({}, "", `/app/portfolio/blogs/${savedSlug}`);
     }
     showToast("Cambios guardados.", "ok");
