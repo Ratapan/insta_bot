@@ -104,6 +104,36 @@ export async function listBlogs(query: ListBlogsQuery = {}): Promise<BlogDoc[]> 
     .toArray();
 }
 
+export interface BlogSummary {
+  slug: string;
+  title: string;
+  type: "blog" | "repo";
+  status: "draft" | "published" | "archived";
+  excerpt: string;
+  mainImage: string;
+  publishedAt: Date | null;
+  updatedAt: Date | null;
+  createdAt: Date | null;
+}
+
+/** Lista proyectada para la vista de gestión (sin el content[] pesado). */
+export async function listBlogSummaries(
+  query: ListBlogsQuery = {},
+): Promise<BlogSummary[]> {
+  const docs = await listBlogs(query);
+  return docs.map((d) => ({
+    slug: d.slug,
+    title: d.title ?? "",
+    type: d.type ?? "blog",
+    status: d.status ?? "draft",
+    excerpt: d.excerpt ?? "",
+    mainImage: d.mainImage ?? "",
+    publishedAt: toDate(d.publishedAt),
+    updatedAt: toDate(d.updatedAt),
+    createdAt: toDate(d.createdAt),
+  }));
+}
+
 export async function findBlogBySlug(slug: string): Promise<BlogDoc | null> {
   const col = await getBlogsCollection();
   return col.findOne({ slug });
