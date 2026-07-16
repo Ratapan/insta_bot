@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
-import { TONES } from "./tones";
+import { BLOG_TONES, TONES } from "./tones";
 
 const MODEL = "claude-sonnet-4-6";
 // Cap defensivo para la descarga cruda (CDN de Instagram). No es el límite de
@@ -546,4 +546,266 @@ export async function downloadImageAsBase64(url: string): Promise<{
     throw new Error("La imagen descargada supera el límite de 15MB");
   }
   return normalizeImageForClaude(buffer);
+}
+
+// ---------------------------------------------------------------------------
+// Asistencias de IA por campo del editor de blogs (Fase 3)
+// ---------------------------------------------------------------------------
+// La escritura a generationLog (source: "blog_field") la hace la ruta, no aquí.
+
+function stripCodeFence(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+}
+
+/**
+ * Bucle de generación JSON compartido por las asistencias de blog: una llamada,
+ * reintento único si el JSON viene malformado, mismos errores string que el
+ * resto de claude.ts (CaptionGenerationError reason "api" | "parse").
+ */
+async function generateBlogJson<T>(
+  system: string,
+  content: Anthropic.ContentBlockParam[],
+  maxTokens: number,
+  parse: (raw: string) => T,
+): Promise<T> {
+  const ATTEMPTS = 2;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    let text: string;
+    try {
+      const response = await client.messages.create({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content }],
+      });
+      text = response.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+    } catch (err) {
+      console.error("[claude] API error (blog)", err);
+      throw new CaptionGenerationError(
+        "La API de Claude no respondió tras varios reintentos.",
+        "api",
+      );
+    }
+    try {
+      return parse(text);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[claude] JSON malformado en blog (intento ${attempt})`, text);
+    }
+  }
+  console.error("[claude] blog parse failed", lastError);
+  throw new CaptionGenerationError(
+    "Claude no devolvió un JSON válido tras dos intentos.",
+    "parse",
+  );
+}
+
+// --- Campos de texto: excerpt / description / title / tags ---
+
+export type BlogFieldKind = "excerpt" | "description" | "title" | "tags";
+
+export interface GenerateBlogFieldInput {
+  kind: BlogFieldKind;
+  /** Título actual del post (puede estar vacío). */
+  title: string;
+  /** Contenido del post como texto plano (sin HTML ni imágenes). */
+  contentText: string;
+  /** Solo lo usan excerpt y title. */
+  tone?: string;
+}
+
+const BLOG_FIELD_SYSTEM: Record<BlogFieldKind, string> = {
+  excerpt: `Eres editor del blog fotográfico de Javier Sabando. Escribes el EXTRACTO de un post: el gancho que se lee en la lista y las tarjetas.
+Devuelve SIEMPRE y ÚNICAMENTE un JSON válido: {"excerpt":"..."}
+Reglas:
+- Español, una o dos frases (máx ~300 caracteres), dentro del tono pedido.
+- Invita a leer sin exagerar ni spoilear; nada de "En este post" ni "Aquí te cuento".
+- No inventes datos que no estén en el título o el contenido que se te da.
+- Nada de texto fuera del JSON: ni explicaciones, ni markdown, ni bloques de código.`,
+  description: `Eres editor del blog fotográfico de Javier Sabando. Escribes la DESCRIPCIÓN (meta) del post, pensada para buscadores.
+Devuelve SIEMPRE y ÚNICAMENTE un JSON válido: {"description":"..."}
+Reglas:
+- Español, una o dos frases (máx ~160 caracteres), clara e informativa: resume de qué trata el post, sin gancho ni voz editorial.
+- Menciona de forma natural el tema y el lugar si aparecen en el contenido; no inventes.
+- Nada de texto fuera del JSON: ni explicaciones, ni markdown, ni bloques de código.`,
+  title: `Eres editor del blog fotográfico de Javier Sabando. Propones TÍTULOS para un post a partir de su contenido.
+Devuelve SIEMPRE y ÚNICAMENTE un JSON válido: {"titles":["...","...","..."]}
+Reglas:
+- Exactamente 3 títulos en español, claramente distintos entre sí (enfoque y largo), todos dentro del tono pedido.
+- Concretos y atractivos; nada de clickbait ni signos de exclamación. Máx ~70 caracteres cada uno.
+- Básate en el contenido dado; no inventes lugares ni hechos.
+- Nada de texto fuera del JSON: ni explicaciones, ni markdown, ni bloques de código.`,
+  tags: `Eres editor del blog fotográfico de Javier Sabando. Propones TAGS (temas) para un post a partir de su contenido.
+Devuelve SIEMPRE y ÚNICAMENTE un JSON válido: {"tags":["...","..."]}
+Reglas:
+- De 4 a 8 tags en español, en minúsculas, de una o dos palabras cada uno.
+- Temas, lugares y motivos presentes en el contenido; concretos y sin repetir.
+- Es una lista libre, no un vocabulario cerrado.
+- Nada de texto fuera del JSON: ni explicaciones, ni markdown, ni bloques de código.`,
+};
+
+const BLOG_FIELD_INSTRUCTION: Record<BlogFieldKind, string> = {
+  excerpt: "Genera el extracto del post.",
+  description: "Genera la descripción (meta) del post.",
+  title: "Propón los 3 títulos.",
+  tags: "Propón los tags.",
+};
+
+function parseBlogField(kind: BlogFieldKind, raw: string): string | string[] {
+  const parsed = JSON.parse(stripCodeFence(raw)) as Record<string, unknown>;
+  if (kind === "excerpt" || kind === "description") {
+    const value = parsed[kind];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`invalid field: ${kind}`);
+    }
+    return value.trim();
+  }
+  const key = kind === "title" ? "titles" : "tags";
+  const arr = parsed[key];
+  if (!Array.isArray(arr)) throw new Error(`invalid field: ${key}`);
+  const items = [
+    ...new Set(
+      arr
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .map((x) => x.trim()),
+    ),
+  ];
+  if (items.length === 0) throw new Error(`invalid field: ${key}`);
+  return kind === "title" ? items.slice(0, 3) : items.slice(0, 8);
+}
+
+/**
+ * Sugerencia para un campo de texto del post. Devuelve string
+ * (excerpt/description) o string[] (title/tags). No envía la imagen ni HTML:
+ * solo el título y el contenido en texto plano (el tono aplica a excerpt/title).
+ */
+export async function generateBlogFieldSuggestion(
+  input: GenerateBlogFieldInput,
+): Promise<string | string[]> {
+  const lines: string[] = [];
+  if (input.title.trim()) lines.push(`Título del post: ${input.title.trim()}`);
+  if ((input.kind === "excerpt" || input.kind === "title") && input.tone) {
+    const tone = BLOG_TONES.find((t) => t.id === input.tone);
+    lines.push(`Tono pedido: ${tone ? `${tone.label} — ${tone.hint}` : input.tone}`);
+  }
+  lines.push(
+    `Contenido del post (texto plano):\n${input.contentText.trim() || "(sin contenido todavía)"}`,
+  );
+  lines.push(BLOG_FIELD_INSTRUCTION[input.kind]);
+
+  const maxTokens = input.kind === "title" || input.kind === "tags" ? 600 : 500;
+  return generateBlogJson(
+    BLOG_FIELD_SYSTEM[input.kind],
+    [{ type: "text", text: lines.join("\n\n") }],
+    maxTokens,
+    (raw) => parseBlogField(input.kind, raw),
+  );
+}
+
+// --- Caption bilingüe de una imagen (voz editorial, no de catálogo) ---
+
+export interface GenerateBlogImageCaptionInput {
+  imageBase64: string;
+  imageMediaType: SupportedImageType;
+  tone: string;
+  /** caption + footer de catálogo (colección images) si la url está catalogada. */
+  factualDescription?: string;
+  /** context de la sesión (colección sessions) si existe. */
+  sessionContext?: string;
+  /** Contexto del post donde vive el caption. */
+  postTitle?: string;
+  postExcerpt?: string;
+  /** Texto plano del bloque de texto que precede a la imagen (se trunca). */
+  precedingText?: string;
+  /** Caption actual del bloque, al regenerar. */
+  currentCaption?: string;
+}
+
+const BLOG_CAPTION_SYSTEM = `Eres quien escribe los captions EDITORIALES del blog fotográfico de Javier Sabando (javiersabando.lat). No catalogas la imagen: la acompañas con una línea que le da sentido dentro del relato del post.
+
+Devuelve SIEMPRE y ÚNICAMENTE un JSON válido con esta forma exacta:
+{"caption":"...","caption_en":"..."}
+
+Dos voces — no las confundas:
+- Voz de CATÁLOGO (la que NO debes usar): describe literalmente, hace inventario. Ej.: "La imagen muestra un pato gris posado sobre unas rocas con musgo", "Grupo de pingüinos posados sobre un terreno rocoso bajo un cielo despejado".
+- Voz EDITORIAL (la tuya): evoca y conecta con el momento o el relato del post, con una imagen literaria. Ej.: "Un ave permanece inmóvil entre rocas cubiertas de algas, en equilibrio constante entre tierra y agua", "Un grupo de pingüinos asciende por la roca como si siguiera una coreografía aprendida de memoria".
+
+Reglas:
+- caption: en español, una o dos frases dentro del tono pedido; en tono mínimo, una sola y corta. Prohibido empezar con "La imagen muestra", "Se observa", "En la foto", "Aquí vemos". No enumeres colores ni posiciones salvo que aporten al sentido.
+- No inventes hechos. Se te entrega el contexto del post y una DESCRIPCIÓN FACTUAL de lo que hay en la foto (y, si existe, el contexto de la sesión): trátalos como verdad. No afirmes lugares, especies, nombres ni fechas que no estén en esos datos o no sean evidentes en la imagen; ante la duda, quédate en lo sensorial.
+- En tono técnico puedes apoyarte en la decisión de la toma que se ve en la imagen (encuadre, luz, momento elegido), pero NO afirmes datos que no se ven: nada de focal, apertura, ISO ni velocidad — eso lo enriquece el sitio desde el EXIF real.
+- caption_en: inglés natural y cuidado —es texto público del sitio—, mismo registro editorial. NO una traducción literal; que suene escrito en inglés.
+- Sin hashtags, sin emojis, sin comillas tipográficas.
+- Si se te da un caption actual, es para reescribirlo mejor en el tono pedido, no para repetirlo.
+- Nada de texto fuera del JSON: ni explicaciones, ni markdown, ni bloques de código.`;
+
+function buildBlogCaptionPrompt(input: GenerateBlogImageCaptionInput): string {
+  const tone = BLOG_TONES.find((t) => t.id === input.tone);
+  const lines = [`Tono pedido: ${tone ? `${tone.label} — ${tone.hint}` : input.tone}`];
+
+  const post = [input.postTitle?.trim(), input.postExcerpt?.trim()]
+    .filter(Boolean)
+    .join(". ");
+  if (post) lines.push(`Post: ${post}`);
+  if (input.precedingText?.trim()) {
+    lines.push(`Texto que precede a la imagen: ${input.precedingText.trim().slice(0, 300)}`);
+  }
+  if (input.factualDescription?.trim()) {
+    lines.push(
+      `Descripción factual de la foto (no la copies, es solo para no inventar): ${input.factualDescription.trim()}`,
+    );
+  }
+  if (input.sessionContext?.trim()) {
+    lines.push(`Contexto de la sesión: ${input.sessionContext.trim()}`);
+  }
+  if (input.currentCaption?.trim()) {
+    lines.push(
+      `Caption actual del bloque (reescríbelo mejor en el tono pedido): ${input.currentCaption.trim()}`,
+    );
+  }
+  lines.push("Escribe el caption editorial bilingüe para esta imagen.");
+  return lines.join("\n");
+}
+
+function parseBlogCaption(raw: string): { caption: string; caption_en: string } {
+  const parsed = JSON.parse(stripCodeFence(raw)) as Record<string, unknown>;
+  for (const field of ["caption", "caption_en"]) {
+    if (typeof parsed[field] !== "string" || (parsed[field] as string).trim().length === 0) {
+      throw new Error(`invalid field: ${field}`);
+    }
+  }
+  return {
+    caption: (parsed.caption as string).trim(),
+    caption_en: (parsed.caption_en as string).trim(),
+  };
+}
+
+/**
+ * Caption bilingüe editorial (voz de blog, no de catálogo) para una imagen del
+ * post. Recibe la imagen ya normalizada y el grounding en texto (contexto del
+ * post, texto precedente, descripción factual del catálogo, contexto de sesión);
+ * todo es best-effort: lo que no venga, se omite.
+ */
+export async function generateBlogImageCaption(
+  input: GenerateBlogImageCaptionInput,
+): Promise<{ caption: string; caption_en: string }> {
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: input.imageMediaType,
+        data: input.imageBase64,
+      },
+    },
+    { type: "text", text: buildBlogCaptionPrompt(input) },
+  ];
+  return generateBlogJson(BLOG_CAPTION_SYSTEM, content, 800, parseBlogCaption);
 }

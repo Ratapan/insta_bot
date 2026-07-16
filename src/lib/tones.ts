@@ -43,3 +43,40 @@ export const TONES: Tone[] = [
 export function isValidTone(id: string): boolean {
   return TONES.some((t) => t.id === id);
 }
+
+/**
+ * Tonos para las asistencias de IA del editor de blogs. Set propio (registro
+ * editorial de un blog fotográfico), distinto de TONES (captions de Instagram).
+ * Aplica a captions, excerpt y title; tags y description no lo usan.
+ */
+export const BLOG_TONES: Tone[] = [
+  {
+    id: "narrativo",
+    label: "Narrativo",
+    hint: "Cuenta la escena como parte del relato del viaje; hilo, ritmo, a veces en primera persona.",
+  },
+  {
+    id: "contemplativo",
+    label: "Contemplativo",
+    hint: "Pausado y sensorial; se detiene en la luz, la textura, la atmósfera del momento.",
+  },
+  {
+    id: "tecnico",
+    label: "Técnico",
+    hint: "La mirada del fotógrafo: composición, luz y decisión de la toma, sin jerga ni datos EXIF.",
+  },
+  {
+    id: "cercano",
+    label: "Cercano",
+    hint: "Cálido y directo, como contándoselo a alguien al lado; primera persona natural.",
+  },
+  {
+    id: "minimo",
+    label: "Mínimo",
+    hint: "Una sola frase corta; deja que la imagen hable, sin adornos.",
+  },
+];
+
+export function isValidBlogTone(id: string): boolean {
+  return BLOG_TONES.some((t) => t.id === id);
+}
