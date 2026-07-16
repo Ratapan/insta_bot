@@ -1,0 +1,10 @@
+---
+// Crear un post nuevo del portafolio. El editor arranca en blanco (sin slug).
+import Layout from "../../../../layouts/Layout.astro";
+import PortfolioBlogEditor from "../../../../components/vue/PortfolioBlogEditor.vue";
+---
+
+<Layout title="Nuevo post — InstaCaptions">
+  <h1 class="mb-4 text-2xl font-bold">Nuevo post</h1>
+  <PortfolioBlogEditor client:load />
+</Layout>

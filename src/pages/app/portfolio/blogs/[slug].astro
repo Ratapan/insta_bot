@@ -1,0 +1,13 @@
+---
+// Editar un post existente por slug. Ruta dinámica SSR (la app corre en modo
+// server con el adaptador de Node), así que no necesita getStaticPaths.
+import Layout from "../../../../layouts/Layout.astro";
+import PortfolioBlogEditor from "../../../../components/vue/PortfolioBlogEditor.vue";
+
+const { slug } = Astro.params;
+---
+
+<Layout title="Editar post — InstaCaptions">
+  <h1 class="mb-4 text-2xl font-bold">Editar post</h1>
+  <PortfolioBlogEditor client:load slug={slug} />
+</Layout>
