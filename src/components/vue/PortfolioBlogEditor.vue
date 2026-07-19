@@ -162,6 +162,124 @@ function removeSlide(bi: number, si: number) {
   blocks.value[bi].slides?.splice(si, 1);
 }
 
+// --- Importar bloques desde JSON ---
+// Permite pegar contenido armado en otro lugar (un array de bloques, o un post
+// exportado con su `content`). Solo copia campos reconocidos por cada tipo; el
+// server igual sanitiza el HTML y normaliza la forma al guardar.
+const IMPORT_TYPES = new Set(["text", "image", "video", "slide", "code"]);
+const jsonOpen = ref(false);
+const jsonText = ref("");
+const jsonMode = ref<"append" | "replace">("append");
+const jsonError = ref<string | null>(null);
+
+function importStr(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+function copyCaptions(src: Record<string, any>, dst: Slide) {
+  const cap = importStr(src.caption);
+  if (cap) dst.caption = cap;
+  const capEn = importStr(src.caption_en);
+  if (capEn) dst.caption_en = capEn;
+  const foot = importStr(src.footer);
+  if (foot) dst.footer = foot;
+  const footEn = importStr(src.footer_en);
+  if (footEn) dst.footer_en = footEn;
+}
+
+function normalizeImportedBlock(x: any): Block | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const type = x.type;
+  if (!IMPORT_TYPES.has(type)) return null;
+
+  if (type === "text") {
+    return { type, value: typeof x.value === "string" ? x.value : "" };
+  }
+  if (type === "code") {
+    const b: Block = { type, value: typeof x.value === "string" ? x.value : "" };
+    const lang = importStr(x.language);
+    if (lang) b.language = lang;
+    return b;
+  }
+  if (type === "video") {
+    const v = importStr(x.videoUrl) ?? importStr(x.url);
+    if (!v) return null;
+    return { type, videoUrl: v };
+  }
+  if (type === "image") {
+    const url = importStr(x.url) ?? importStr(x.imageUrl);
+    if (!url) return null;
+    const b: Block = { type, url };
+    copyCaptions(x, b);
+    return b;
+  }
+  // slide
+  const slides: Slide[] = [];
+  if (Array.isArray(x.slides)) {
+    for (const s of x.slides) {
+      const url = importStr(s?.url) ?? importStr(s?.imageUrl);
+      if (!url) continue;
+      const slide: Slide = { url };
+      copyCaptions(s, slide);
+      slides.push(slide);
+    }
+  }
+  if (slides.length === 0) return null;
+  return { type: "slide", slides };
+}
+
+function importJson() {
+  jsonError.value = null;
+  const raw = jsonText.value.trim();
+  if (!raw) {
+    jsonError.value = "Pega el JSON primero.";
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    jsonError.value = "JSON no válido: revisa la sintaxis.";
+    return;
+  }
+  const arr = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && Array.isArray((parsed as any).content)
+      ? (parsed as any).content
+      : null;
+  if (!arr) {
+    jsonError.value = "Se esperaba un array de bloques (o un objeto con `content`).";
+    return;
+  }
+
+  let skipped = 0;
+  const imported: Block[] = [];
+  for (const item of arr) {
+    const b = normalizeImportedBlock(item);
+    if (b) imported.push(b);
+    else skipped++;
+  }
+  if (imported.length === 0) {
+    jsonError.value = "No se reconoció ningún bloque válido (revisa los tipos y las URLs).";
+    return;
+  }
+
+  if (jsonMode.value === "replace") {
+    const prev = blocks.value;
+    blocks.value = imported;
+    offerUndo("Contenido reemplazado.", () => (blocks.value = prev));
+  } else {
+    blocks.value.push(...imported);
+  }
+  jsonText.value = "";
+  jsonOpen.value = false;
+  const n = imported.length;
+  const msg =
+    `${n} bloque${n === 1 ? "" : "s"} importado${n === 1 ? "" : "s"}` +
+    (skipped ? `, ${skipped} omitido${skipped === 1 ? "" : "s"}` : "");
+  showToast(msg, "ok");
+}
+
 // --- Chips ---
 function addTag() {
   const v = tagInput.value.trim();
@@ -797,6 +915,50 @@ onMounted(() => {
       <section class="space-y-3">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-neutral-700">Contenido ({{ blocks.length }})</h2>
+        </div>
+
+        <!-- Importar desde JSON -->
+        <div class="rounded-xl border border-neutral-200 bg-white">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-neutral-700 hover:text-pink-600"
+            @click="jsonOpen = !jsonOpen"
+          >
+            <span>Importar contenido desde JSON</span>
+            <span class="text-neutral-400">{{ jsonOpen ? "▲" : "▼" }}</span>
+          </button>
+          <div v-if="jsonOpen" class="space-y-2 border-t border-neutral-100 p-3">
+            <p class="text-xs text-neutral-500">
+              Pega un array de bloques (o un objeto con <span class="font-mono">content</span>)
+              con la misma forma que guarda el editor. Tipos:
+              <span class="font-mono">text, image, video, slide, code</span>.
+            </p>
+            <textarea
+              v-model="jsonText"
+              rows="6"
+              spellcheck="false"
+              placeholder='[ { "type": "text", "value": "&lt;p&gt;Hola&lt;/p&gt;" }, { "type": "image", "url": "https://…", "caption": "…" } ]'
+              class="w-full rounded-lg border border-neutral-300 px-3 py-2 font-mono text-xs focus:border-pink-500 focus:outline-none"
+            ></textarea>
+            <p v-if="jsonError" class="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+              {{ jsonError }}
+            </p>
+            <div class="flex flex-wrap items-center gap-3">
+              <label class="flex items-center gap-1 text-xs text-neutral-600">
+                <input v-model="jsonMode" type="radio" value="append" /> Añadir al final
+              </label>
+              <label class="flex items-center gap-1 text-xs text-neutral-600">
+                <input v-model="jsonMode" type="radio" value="replace" /> Reemplazar todo
+              </label>
+              <button
+                type="button"
+                class="ml-auto rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700"
+                @click="importJson"
+              >
+                Importar
+              </button>
+            </div>
+          </div>
         </div>
 
         <div
