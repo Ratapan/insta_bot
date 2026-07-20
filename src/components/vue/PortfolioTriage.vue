@@ -48,7 +48,20 @@ type PatchableFields = Partial<
     | "footer"
     | "footer_en"
     | "categories"
+    | "focal"
+    | "focalMm"
+    | "apertura"
+    | "iso"
+    | "velocidad"
+    | "camera"
+    | "lens"
   >
+>;
+
+/** Campos técnicos que puede rellenar la extracción de EXIF. */
+type ExifFields = Pick<
+  TriageImage,
+  "focal" | "focalMm" | "apertura" | "iso" | "velocidad" | "camera" | "lens"
 >;
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -59,6 +72,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   batch_running: "Ya hay un lote generándose. Espera a que termine.",
   rate_limited:
     "Has alcanzado el límite de generaciones por hora. Espera un poco antes de seguir.",
+  invalid_url: "La URL de la imagen no es del bucket del portafolio.",
+  exif_fetch_failed: "No se pudo descargar la imagen para leer su EXIF.",
 };
 
 function messageFor(code: string): string {
@@ -624,6 +639,83 @@ function onKey(e: KeyboardEvent) {
   e.preventDefault();
 }
 
+// ---------- Extracción de EXIF (rellenar datos técnicos) ----------
+
+/** ¿El doc ya tiene algún dato técnico? Para saber si vale la pena extraer. */
+function hasExif(img: TriageImage): boolean {
+  return Boolean(
+    img.focal || img.apertura || img.iso || img.velocidad || img.camera || img.lens,
+  );
+}
+
+// URL en curso de extracción individual (para el spinner del botón).
+const extractingUrl = ref<string | null>(null);
+
+/**
+ * Pide el EXIF del WebP público al backend y, si trae algo, lo aplica por el
+ * PATCH optimista habitual. El endpoint no escribe: el triage sigue siendo el
+ * único escritor. Devuelve el nº de campos aplicados (0 = la imagen no traía EXIF).
+ */
+async function fetchExif(url: string): Promise<ExifFields | null> {
+  const res = await fetch("/api/portfolio/extract-exif", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? "unknown");
+  return (data.exif ?? null) as ExifFields | null;
+}
+
+async function extractExifForImage(img: TriageImage) {
+  if (extractingUrl.value) return;
+  extractingUrl.value = img.url;
+  try {
+    const exif = await fetchExif(img.url);
+    if (!exif || Object.keys(exif).length === 0) {
+      showToast("La imagen no trae EXIF (o ya se descartó al convertirla).");
+      return;
+    }
+    if (await patchImage(img, exif)) {
+      showToast("Datos técnicos añadidos desde el EXIF.", "ok");
+    }
+  } catch (err) {
+    showToast(messageFor(err instanceof Error ? err.message : "unknown"));
+  } finally {
+    extractingUrl.value = null;
+  }
+}
+
+/** Extrae EXIF para toda la selección (backfill masivo de las legacy). */
+async function bulkExtractExif() {
+  const targets = selectedImages.value;
+  if (targets.length === 0 || bulkBusy.value) return;
+  bulkBusy.value = true;
+  bulkProgress.value = { done: 0, total: targets.length };
+  let filled = 0;
+  let empty = 0;
+  let failed = 0;
+  for (const img of targets) {
+    try {
+      const exif = await fetchExif(img.url);
+      if (exif && Object.keys(exif).length > 0) {
+        if (await patchImage(img, exif, false)) filled += 1;
+        else failed += 1;
+      } else {
+        empty += 1;
+      }
+    } catch {
+      failed += 1;
+    }
+    bulkProgress.value.done += 1;
+  }
+  bulkBusy.value = false;
+  const parts = [`${filled} con EXIF`];
+  if (empty) parts.push(`${empty} sin EXIF`);
+  if (failed) parts.push(`${failed} con error`);
+  showToast(parts.join(" · "), failed ? "error" : "ok");
+}
+
 function exifLine(img: TriageImage): string {
   const parts = [
     img.focal,
@@ -820,9 +912,24 @@ onBeforeUnmount(() => {
             {{ cat }}
           </span>
         </div>
-        <p v-if="exifLine(current)" class="text-xs text-neutral-500">
-          {{ exifLine(current) }}
-        </p>
+        <!-- Datos técnicos (EXIF): valores + extracción desde el WebP -->
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-xs text-neutral-500">
+          <span class="font-medium text-neutral-400">Datos técnicos</span>
+          <span v-if="exifLine(current)">{{ exifLine(current) }}</span>
+          <span v-if="current.camera">📷 {{ current.camera }}</span>
+          <span v-if="current.lens">🔎 {{ current.lens }}</span>
+          <span v-if="!hasExif(current)" class="italic text-neutral-400">
+            sin datos técnicos
+          </span>
+          <button
+            :disabled="extractingUrl === current.url"
+            class="rounded-full border border-neutral-300 px-2 py-0.5 font-medium text-neutral-600 hover:border-pink-400 hover:text-pink-700 disabled:opacity-40"
+            title="Lee el EXIF del WebP publicado y rellena los datos técnicos"
+            @click="extractExifForImage(current)"
+          >
+            {{ extractingUrl === current.url ? "Extrayendo…" : "Extraer EXIF" }}
+          </button>
+        </div>
       </div>
 
       <!-- Tira de miniaturas -->
@@ -990,6 +1097,13 @@ onBeforeUnmount(() => {
             @click="startGeneration"
           >
             ✨ Generar metadata
+          </button>
+          <button
+            class="rounded-lg bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-200 disabled:opacity-40"
+            title="Lee el EXIF del WebP publicado y rellena los datos técnicos de la selección"
+            @click="bulkExtractExif"
+          >
+            📷 Extraer EXIF
           </button>
           <button
             :disabled="selected.size < 2"
