@@ -8,12 +8,20 @@ import PortfolioTriage from "../../../components/vue/PortfolioTriage.vue";
 <Layout title="Revisar portafolio — InstaCaptions">
   <div class="mb-2 flex items-center justify-between gap-3">
     <h1 class="text-2xl font-bold">Revisar</h1>
-    <a
-      href="/app/portfolio"
-      class="text-sm text-neutral-600 hover:text-pink-600"
-    >
-      ← Volver al gestor
-    </a>
+    <div class="flex items-center gap-4">
+      <a
+        href="/app/portfolio/tags"
+        class="text-sm font-medium text-pink-600 hover:text-pink-700"
+      >
+        🏷️ Categorías
+      </a>
+      <a
+        href="/app/portfolio"
+        class="text-sm text-neutral-600 hover:text-pink-600"
+      >
+        ← Volver al gestor
+      </a>
+    </div>
   </div>
   <p class="mb-8 text-sm text-neutral-600">
     Curado rápido con teclado: <kbd>←</kbd>/<kbd>→</kbd> para moverte,

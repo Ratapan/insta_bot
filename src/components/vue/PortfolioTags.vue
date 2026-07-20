@@ -267,6 +267,79 @@ const renameTargetExists = computed(() => {
   return !!to && to !== renameFrom.value && tagNames.value.has(to);
 });
 
+// ---- Normalizar: reasignar a una categoría amplia (raíz) o descartar ----
+// Guiado: en vez de escribir el destino, se elige una de las categorías amplias
+// (o "eliminar de las imágenes" para el ruido que no encaja en ninguna).
+const normFrom = ref<string | null>(null);
+const normMode = ref<"merge" | "remove">("merge");
+const normTarget = ref("");
+const normBusy = ref(false);
+
+/** Raíces distintas de la categoría que se normaliza (posibles destinos). */
+const normTargets = computed(() =>
+  rootOptions.value.filter((r) => r !== normFrom.value),
+);
+
+function openNormalize(name: string) {
+  normFrom.value = name;
+  normMode.value = "merge";
+  normTarget.value = "";
+}
+function closeNormalize() {
+  normFrom.value = null;
+  normTarget.value = "";
+}
+
+async function applyNormalize() {
+  const from = normFrom.value;
+  if (!from) return;
+  normBusy.value = true;
+  try {
+    if (normMode.value === "merge") {
+      const to = normTarget.value;
+      if (!to || to === from) {
+        showToast("Elige una categoría general de destino.");
+        return;
+      }
+      const res = await fetch("/api/portfolio/tags", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to, apply: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(messageFor(data.error));
+        return;
+      }
+      showToast(
+        `«${from}» normalizada en «${to}» (${data.affected} imagen${data.affected === 1 ? "" : "es"}).`,
+        "ok",
+      );
+    } else {
+      const res = await fetch("/api/portfolio/tags", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: from, purgeImages: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(messageFor(data.error));
+        return;
+      }
+      showToast(
+        `«${from}» eliminada de ${data.purged} imagen${data.purged === 1 ? "" : "es"}.`,
+        "ok",
+      );
+    }
+    closeNormalize();
+    await load();
+  } catch {
+    showToast(messageFor("unknown"));
+  } finally {
+    normBusy.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -346,6 +419,12 @@ onMounted(load);
                   Renombrar / fusionar
                 </button>
                 <button
+                  class="rounded px-2 py-1 text-pink-600 hover:bg-pink-50"
+                  @click="openNormalize(root.name)"
+                >
+                  Normalizar
+                </button>
+                <button
                   class="rounded px-2 py-1 text-red-500 hover:bg-red-50"
                   @click="removeTag(root.name)"
                 >
@@ -383,6 +462,12 @@ onMounted(load);
                     @click="openRename(child.name)"
                   >
                     Renombrar
+                  </button>
+                  <button
+                    class="rounded px-2 py-1 text-pink-600 hover:bg-pink-50"
+                    @click="openNormalize(child.name)"
+                  >
+                    Normalizar
                   </button>
                   <button
                     class="rounded px-2 py-1 text-red-500 hover:bg-red-50"
@@ -455,6 +540,12 @@ onMounted(load);
           >
             Fusionar
           </button>
+          <button
+            class="text-xs font-medium text-pink-600 hover:underline"
+            @click="openNormalize(o.name)"
+          >
+            Normalizar
+          </button>
         </li>
       </ul>
     </section>
@@ -480,6 +571,65 @@ onMounted(load);
         </li>
       </ul>
     </section>
+
+    <!-- Modal normalizar -->
+    <div
+      v-if="normFrom"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      @click.self="closeNormalize"
+    >
+      <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        <h2 class="mb-1 font-semibold">Normalizar «{{ normFrom }}»</h2>
+        <p class="mb-3 text-xs text-neutral-500">
+          Se usa en <strong>{{ usageOf(normFrom) }}</strong>
+          imagen{{ usageOf(normFrom) === 1 ? "" : "es" }}. Reasígnala a una
+          categoría general, o elimínala de las imágenes si es ruido que no
+          encaja en ninguna.
+        </p>
+
+        <label class="flex items-center gap-2 text-sm">
+          <input v-model="normMode" type="radio" value="merge" class="accent-pink-600" />
+          Reasignar a una categoría general
+        </label>
+        <select
+          v-model="normTarget"
+          :disabled="normMode !== 'merge'"
+          class="mt-1 mb-3 ml-6 w-[calc(100%-1.5rem)] rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-pink-500 focus:outline-none disabled:opacity-50"
+        >
+          <option value="">Elige una categoría general…</option>
+          <option v-for="r in normTargets" :key="r" :value="r">{{ r }}</option>
+        </select>
+
+        <label class="flex items-center gap-2 text-sm">
+          <input v-model="normMode" type="radio" value="remove" class="accent-pink-600" />
+          Eliminar de las imágenes (descartar)
+        </label>
+
+        <div class="mt-5 flex justify-end gap-2">
+          <button
+            :disabled="normBusy"
+            class="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-100 disabled:opacity-50"
+            @click="closeNormalize"
+          >
+            Cancelar
+          </button>
+          <button
+            :disabled="normBusy || (normMode === 'merge' && !normTarget)"
+            class="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            :class="normMode === 'remove' ? 'bg-red-600 hover:bg-red-500' : 'bg-pink-600 hover:bg-pink-500'"
+            @click="applyNormalize"
+          >
+            {{
+              normBusy
+                ? "Aplicando…"
+                : normMode === "remove"
+                  ? "Eliminar"
+                  : "Normalizar"
+            }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Modal renombrar / fusionar -->
     <div

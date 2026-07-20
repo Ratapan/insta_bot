@@ -370,6 +370,37 @@ export async function renameCategoryEverywhere(
  * Borra un tag del vocabulario (las imágenes que lo usan NO se tocan: la
  * categoría queda como huérfana). Sus hijos heredan el parent del borrado.
  */
+/**
+ * Elimina una categoría de TODAS las imágenes (no solo del vocabulario): la
+ * saca de `categories` y recalcula la `category` derivada. Con apply=false es
+ * dry-run (solo cuenta). Para descartar categorías de ruido/transversales que
+ * no encajan en ninguna categoría amplia.
+ */
+export async function removeCategoryEverywhere(
+  rawName: string,
+  apply: boolean,
+): Promise<{ affected: number }> {
+  const name = tagSchema.shape.name.parse(rawName);
+  const col = await getCollection();
+
+  if (!apply) {
+    const affected = await col.countDocuments({ categories: name });
+    return { affected };
+  }
+
+  const docs = await col.find({ categories: name }).toArray();
+  const now = new Date();
+  for (const doc of docs) {
+    const categories = doc.categories.filter((c) => c !== name);
+    const set: Record<string, unknown> = { categories, updatedAt: now };
+    const update: Record<string, unknown> = { $set: set };
+    if (categories.length) set.category = categories[0];
+    else update.$unset = { category: "" };
+    await col.updateOne({ _id: doc._id }, update);
+  }
+  return { affected: docs.length };
+}
+
 export async function deleteTag(rawName: string): Promise<boolean> {
   const name = tagSchema.shape.name.parse(rawName);
   const tcol = await getTagsCollection();

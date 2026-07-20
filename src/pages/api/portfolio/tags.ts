@@ -5,12 +5,15 @@
 //   PUT    { from, to, apply? } → renombra/fusiona en TODO el portafolio;
 //           apply:false (default) es dry-run y devuelve { affected, merged }
 //   PATCH  { name, parent } → mueve el tag en la jerarquía (parent:null = raíz)
-//   DELETE { name } → borra el tag del vocabulario (no toca las imágenes)
+//   DELETE { name, purgeImages? } → borra el tag del vocabulario. Con
+//           purgeImages:true además elimina la categoría de TODAS las imágenes
+//           (descarte real); devuelve { purged }.
 import type { APIRoute } from "astro";
 import {
   categoryUsageCounts,
   deleteTag,
   listTags,
+  removeCategoryEverywhere,
   renameCategoryEverywhere,
   setTagParent,
   upsertTag,
@@ -129,6 +132,14 @@ export const DELETE: APIRoute = async (context) => {
   if (!target.success) return json({ error: "invalid_fields" }, 400);
 
   try {
+    // Descarte real: saca la categoría de las imágenes. El tag puede no existir
+    // (categoría huérfana), así que el borrado del vocabulario es best-effort.
+    if (body.purgeImages === true) {
+      const { affected } = await removeCategoryEverywhere(target.data, true);
+      await deleteTag(target.data);
+      return json({ deleted: true, purged: affected });
+    }
+
     const deleted = await deleteTag(target.data);
     if (!deleted) return json({ error: "not_found" }, 404);
     return json({ deleted: true });

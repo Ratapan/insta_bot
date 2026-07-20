@@ -22,6 +22,18 @@ import sharp from "sharp";
 const MAX_PUBLISH_EDGE = 2560;
 const WEBP_QUALITY = 80;
 
+// Valores placeholder de EXIF que equivalen a "sin dato". Las cámaras bridge
+// (p. ej. la Lumix DMC-FZ300, de lente fijo) escriben "N/A" en LensModel; eso
+// no es un lente real, así que se normaliza a ausente.
+const EXIF_PLACEHOLDERS = new Set(["n/a", "na", "n.a.", "----", "--", "-", "unknown", "none"]);
+
+/** Limpia un texto de EXIF: trim y descarta placeholders → undefined. */
+function cleanExifText(value: unknown): string | undefined {
+  const s = typeof value === "string" ? value.trim() : "";
+  if (!s || EXIF_PLACEHOLDERS.has(s.toLowerCase())) return undefined;
+  return s;
+}
+
 /** Campos EXIF con los nombres que usa el modelo Image del portfolio. */
 export interface ExifFields {
   focal?: string;
@@ -85,7 +97,7 @@ export function extractExif(buffer: Buffer): ExifFields {
     fields.camera = camera;
   }
 
-  const lens = tags.LensModel?.description?.trim();
+  const lens = cleanExifText(tags.LensModel?.description);
   if (lens) fields.lens = lens;
 
   return fields;
@@ -176,7 +188,7 @@ function cameraExif(buffer: Buffer): sharp.Exif | undefined {
   if (iso) exifIfd.ISOSpeedRatings = iso;
   const focal = rationalString(tags.FocalLength);
   if (focal) exifIfd.FocalLength = focal;
-  const lens = textString(tags.LensModel);
+  const lens = cleanExifText(tags.LensModel?.description);
   if (lens) exifIfd.LensModel = lens;
   // Fecha de captura ("YYYY:MM:DD HH:MM:SS"): permite el orden cronológico
   // dentro de una sesión y backfill sin volver a los originales. Sin implicación
