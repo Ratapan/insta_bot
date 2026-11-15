@@ -19,6 +19,7 @@ import { getDb } from "./portfolioDb";
 import { ensureUniqueSlug, slugify } from "./slug";
 import {
   blogInputSchema,
+  imageSizeSchema,
   type BlogDoc,
   type BlogInput,
   type ContentBlock,
@@ -149,9 +150,11 @@ function normalizeBlock(raw: unknown): EditorBlock | null {
 
   if (type === "text") return { type, value: str(b.value) };
   if (type === "image") {
+    const size = imageSizeSchema.safeParse(b.size);
     return {
       type,
       url: str(b.url ?? b.imageUrl), // legacy: imageUrl → url
+      ...(size.success ? { size: size.data } : {}),
       caption: opt(b.caption),
       caption_en: opt(b.caption_en),
       footer: opt(b.footer),

@@ -15,10 +15,19 @@ interface Slide {
   footer?: string;
   footer_en?: string;
 }
+type ImageSize = "normal" | "ancho" | "completo";
+const IMAGE_SIZES: { value: ImageSize; label: string }[] = [
+  { value: "normal", label: "Normal (ancho del texto)" },
+  { value: "ancho", label: "Ancha (más que el texto)" },
+  { value: "completo", label: "Completa (todo el ancho)" },
+];
+
 interface Block {
   type: "text" | "image" | "video" | "slide" | "code";
   value?: string;
   url?: string;
+  /** Solo image: ancho en el artículo. Sin valor = normal. */
+  size?: ImageSize;
   videoUrl?: string;
   language?: string;
   caption?: string;
@@ -210,6 +219,7 @@ function normalizeImportedBlock(x: any): Block | null {
     const url = importStr(x.url) ?? importStr(x.imageUrl);
     if (!url) return null;
     const b: Block = { type, url };
+    if (IMAGE_SIZES.some((s) => s.value === x.size)) b.size = x.size;
     copyCaptions(x, b);
     return b;
   }
@@ -358,6 +368,8 @@ function buildContent(): Record<string, unknown>[] {
     if (b.type === "video") return { type: "video", videoUrl: (b.videoUrl ?? "").trim() };
     if (b.type === "image") {
       const o: Record<string, unknown> = { type: "image", url: b.url };
+      // "normal" es el valor por defecto: no se guarda.
+      if (b.size && b.size !== "normal") o.size = b.size;
       trimmedOrSkip(o, "caption", b.caption);
       trimmedOrSkip(o, "caption_en", b.caption_en);
       trimmedOrSkip(o, "footer", b.footer);
@@ -1033,6 +1045,16 @@ onMounted(() => {
                 >
                   {{ b.url ? "Cambiar imagen" : "Elegir imagen" }}
                 </button>
+                <label class="ml-auto flex items-center gap-2 text-xs text-neutral-500">
+                  Ancho
+                  <select
+                    :value="b.size ?? 'normal'"
+                    class="rounded-lg border border-neutral-300 px-2 py-1.5 text-sm text-neutral-800 focus:border-pink-500 focus:outline-none"
+                    @change="b.size = ($event.target as HTMLSelectElement).value as ImageSize"
+                  >
+                    <option v-for="s in IMAGE_SIZES" :key="s.value" :value="s.value">{{ s.label }}</option>
+                  </select>
+                </label>
               </div>
               <div class="flex items-center gap-2">
                 <input

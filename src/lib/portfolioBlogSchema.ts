@@ -33,11 +33,18 @@ const textBlockSchema = z.object({
   value: z.string(),
 });
 
+// Ancho de una imagen dentro del artículo (layout de ensayo de portfolio_2026):
+// normal = columna de texto, ancho = más ancha que el texto, completo = todo el
+// ancho de la ventana. Opcional: sin valor se trata como "normal".
+export const imageSizeSchema = z.enum(["normal", "ancho", "completo"]);
+export type ImageSize = z.infer<typeof imageSizeSchema>;
+
 const imageBlockSchema = z.object({
   type: z.literal("image"),
   // El sitio lee `url` (BlogImageCard :imageUrl="block.url") y enriquece el resto
   // desde la colección `images`. Solo guardamos url + caption/footer editoriales.
   url: trimmed.min(1),
+  size: imageSizeSchema.optional(),
   caption: trimmed.optional(),
   caption_en: trimmed.optional(),
   footer: trimmed.optional(),
@@ -124,6 +131,8 @@ export interface EditorBlock {
   type: "text" | "image" | "video" | "slide" | "code";
   value?: string;
   url?: string;
+  /** Solo bloques image. */
+  size?: ImageSize;
   videoUrl?: string;
   language?: string;
   caption?: string;
