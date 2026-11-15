@@ -15,10 +15,33 @@
 //     ordenar/filtrar.
 //   - `session` = carpeta bajo `blog/images/` en R2 (p. ej. "260131_patrimonio").
 //   - `series` agrupa dípticos/trípticos: id compartido + orden dentro de la serie.
+//   - `width`/`height` = dimensiones del WebP PUBLICADO (orientación ya
+//     aplicada) y `color` = su color promedio "#rrggbb": con ellos el sitio
+//     reserva el hueco y pinta un placeholder antes de que cargue la foto.
+//   - `takenAt` = fecha de captura (EXIF DateTimeOriginal). El EXIF no trae
+//     zona horaria: se guarda la hora de pared de la cámara como si fuera UTC
+//     (para mostrarla, formatear en UTC).
+//   - `originalKey` = key del original full-res en el bucket R2 PRIVADO de
+//     originales (misma ruta que el WebP, con su extensión). NUNCA se publica.
 
 import { z } from "zod";
 
 const trimmed = z.string().trim();
+
+/** Color "#rrggbb" en minúsculas. */
+export const hexColorSchema = trimmed.toLowerCase().regex(/^#[0-9a-f]{6}$/);
+
+/**
+ * Key de un original en el bucket privado: ruta relativa sin segmentos
+ * vacíos, "." ni "..", p. ej. "blog/images/260607_tricao/DSC02983.jpg".
+ */
+export const originalKeySchema = trimmed
+  .min(1)
+  .max(1024)
+  .refine(
+    (key) => key.split("/").every((s) => s !== "" && s !== "." && s !== ".."),
+    { message: "invalid_key" },
+  );
 
 /**
  * Nombre de sesión: es una carpeta bajo `blog/images/` en R2, así que solo
@@ -54,6 +77,12 @@ export const portfolioImageFieldsSchema = z.object({
   visible: z.boolean().optional(),
   session: sessionNameSchema.nullable().optional(),
   series: seriesSchema.nullable().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  color: hexColorSchema.optional(),
+  // Desde el cliente llega como string ISO (JSON); desde las libs, como Date.
+  takenAt: z.coerce.date().optional(),
+  originalKey: originalKeySchema.optional(),
   categories: z
     .array(z.string())
     .transform((arr) => [

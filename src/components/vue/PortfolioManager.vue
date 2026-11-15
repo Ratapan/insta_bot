@@ -7,9 +7,10 @@
 // guardar (primer guardado con visible:false).
 // Copia los patrones de FileManager.vue, pero contra /api/portfolio/* —
 // bucket, permisos y backend distintos a la biblioteca privada.
-// El wizard "Subir sesión" sube una tanda completa a blog/images/{sesión}/,
-// guarda el contexto en la colección `sessions` y crea el doc de cada imagen
-// con su EXIF y el campo session (visible:false, como todo insert).
+// El wizard "Subir sesión" sube una tanda completa a blog/images/{sesión}/ y
+// guarda el contexto en la colección `sessions`. Toda subida (wizard o "Subir
+// aquí") crea el doc en el servidor con EXIF, dimensiones, color, session y la
+// key del original privado (visible:false, como todo insert).
 import { computed, onMounted, ref, watch } from "vue";
 import PortfolioImageForm from "./PortfolioImageForm.vue";
 
@@ -31,7 +32,29 @@ interface PortfolioImageDoc {
   stars: number;
   portfolio: boolean;
   visible: boolean;
+  width?: number;
+  height?: number;
+  color?: string;
+  takenAt?: string;
+  originalKey?: string;
 }
+
+/** Respuesta de POST /api/portfolio/upload. */
+interface UploadResponse {
+  key: string;
+  url: string;
+  file: string;
+  size: number;
+  exif: Partial<PortfolioImageDoc>;
+  originalKey: string | null;
+  original: "stored" | "not_configured" | "failed";
+  facts: { width: number; height: number; color: string } | null;
+  image: PortfolioImageDoc | null;
+  docError?: string;
+}
+
+const ORIGINALS_NOT_CONFIGURED =
+  "Las fotos se subieron, pero sin guardar el original: falta configurar PORTFOLIO_ORIGINALS_BUCKET.";
 
 interface BucketFile {
   key: string;
@@ -48,6 +71,8 @@ const files = ref<BucketFile[]>([]);
 const loading = ref(true);
 const busy = ref(false);
 const error = ref<string | null>(null);
+// Aviso no bloqueante (p. ej. originales que no se guardaron).
+const notice = ref<string | null>(null);
 const uploadInput = ref<HTMLInputElement | null>(null);
 const suggestedCategories = ref<string[]>([]);
 
@@ -119,9 +144,12 @@ async function onUpload(event: Event) {
   if (selected.length === 0) return;
   busy.value = true;
   error.value = null;
+  notice.value = null;
   try {
-    let lastUploaded: { file: BucketFile; exif: Partial<PortfolioImageDoc> } | null =
+    let lastUploaded: { file: BucketFile; prefill: Partial<PortfolioImageDoc> } | null =
       null;
+    const withoutOriginal: string[] = [];
+    let originalsOff = false;
 
     for (const file of selected) {
       const form = new FormData();
@@ -142,26 +170,38 @@ async function onUpload(event: Event) {
         );
         continue;
       }
+      const uploaded = data as UploadResponse;
+      if (uploaded.original === "failed") withoutOriginal.push(file.name);
+      if (uploaded.original === "not_configured") originalsOff = true;
       lastUploaded = {
         file: {
-          key: data.key,
-          name: data.file,
-          size: data.size,
+          key: uploaded.key,
+          name: uploaded.file,
+          size: uploaded.size,
           lastModified: null,
-          url: data.url,
-          image: null,
+          url: uploaded.url,
+          image: uploaded.image,
         },
-        exif: data.exif,
+        // El doc ya existe (lo crea el upload); si Mongo falló, el EXIF.
+        prefill: uploaded.image ?? uploaded.exif,
       };
     }
 
+    if (withoutOriginal.length) {
+      alert(
+        `Se subieron, pero sin guardar el original: ${withoutOriginal.join(", ")}.\n` +
+          "Puedes adjuntarlo después desde el editor de cada foto.",
+      );
+    }
+    if (originalsOff) notice.value = ORIGINALS_NOT_CONFIGURED;
+
     await load();
 
-    // Wizard: si se subió UNA imagen, saltar directo al formulario con el
-    // EXIF precargado para generar y guardar la metadata del tirón.
+    // Wizard: si se subió UNA imagen, saltar directo al formulario con los
+    // datos precargados para generar y guardar la metadata del tirón.
     if (selected.length === 1 && lastUploaded) {
       editing.value = lastUploaded.file;
-      editPrefill.value = lastUploaded.exif;
+      editPrefill.value = lastUploaded.prefill;
     }
   } finally {
     busy.value = false;
@@ -192,6 +232,9 @@ const wizBusy = ref(false);
 const wizDone = ref(false);
 const wizProgress = ref({ done: 0, total: 0 });
 const wizErrors = ref<string[]>([]);
+// Fotos que SÍ se subieron, pero con algo pendiente (p. ej. sin original).
+const wizWarnings = ref<string[]>([]);
+const wizOriginalsOff = ref(false);
 
 /** Prefijo de fecha AAMMDD, el patrón de las sesiones existentes. */
 function defaultSessionName(): string {
@@ -223,6 +266,8 @@ function openWizard() {
   wizardOpen.value = true;
   wizDone.value = false;
   wizErrors.value = [];
+  wizWarnings.value = [];
+  wizOriginalsOff.value = false;
   wizFiles.value = [];
   loadSessions();
 }
@@ -245,6 +290,8 @@ async function uploadSession() {
   if (!wizNameValid.value || wizFiles.value.length === 0 || wizBusy.value) return;
   wizBusy.value = true;
   wizErrors.value = [];
+  wizWarnings.value = [];
+  wizOriginalsOff.value = false;
   wizProgress.value = { done: 0, total: wizFiles.value.length };
 
   try {
@@ -262,7 +309,8 @@ async function uploadSession() {
       return;
     }
 
-    // 2. Las fotos, en secuencia: subir a R2 y crear el doc con EXIF+session.
+    // 2. Las fotos, en secuencia. El upload sube WebP + original y crea el doc
+    //    con EXIF, facts y session (la carpeta blog/images/{sesión}).
     for (const file of wizFiles.value) {
       try {
         const form = new FormData();
@@ -279,15 +327,26 @@ async function uploadSession() {
           );
           continue;
         }
+        const uploaded = data as UploadResponse;
+        if (uploaded.original === "failed") {
+          wizWarnings.value.push(
+            `${file.name}: subida, pero sin guardar el original (adjúntalo desde el editor).`,
+          );
+        }
+        if (uploaded.original === "not_configured") wizOriginalsOff.value = true;
+        if (uploaded.image) continue;
 
+        // Mongo falló durante el upload: reintento del doc con lo que devolvió.
         const docRes = await fetch("/api/portfolio/image", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            url: data.url,
-            file: data.file,
+            url: uploaded.url,
+            file: uploaded.file,
             session: name,
-            ...data.exif,
+            ...uploaded.exif,
+            ...(uploaded.facts ?? {}),
+            ...(uploaded.originalKey ? { originalKey: uploaded.originalKey } : {}),
           }),
         });
         if (!docRes.ok) {
@@ -384,6 +443,13 @@ onMounted(() => {
       </div>
     </div>
 
+    <p
+      v-if="notice"
+      class="mb-4 flex items-start justify-between gap-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800"
+    >
+      <span>{{ notice }}</span>
+      <button class="shrink-0 hover:text-amber-950" @click="notice = null">✕</button>
+    </p>
     <p v-if="loading" class="text-neutral-500">Cargando…</p>
     <p
       v-else-if="error"
@@ -490,6 +556,18 @@ onMounted(() => {
             class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700"
           >
             <li v-for="(e, i) in wizErrors" :key="i">{{ e }}</li>
+          </ul>
+          <p
+            v-if="wizOriginalsOff"
+            class="rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-800"
+          >
+            {{ ORIGINALS_NOT_CONFIGURED }}
+          </p>
+          <ul
+            v-if="wizWarnings.length"
+            class="max-h-32 space-y-1 overflow-y-auto rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-800"
+          >
+            <li v-for="(w, i) in wizWarnings" :key="i">{{ w }}</li>
           </ul>
           <div class="flex gap-2">
             <a

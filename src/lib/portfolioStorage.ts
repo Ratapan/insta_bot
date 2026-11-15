@@ -15,6 +15,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { sessionNameSchema } from "./portfolioSchema";
 import { sanitizeRelPath } from "./storage";
 
 const IMAGE_EXT = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i;
@@ -57,6 +58,17 @@ export function keyFromPublicUrl(url: string): string | null {
   if (!url.startsWith(`${base}/`)) return null;
   const key = url.slice(base.length + 1);
   return key.length > 0 ? key : null;
+}
+
+/**
+ * Sesión de una key con la forma blog/images/{sesión}/{archivo} (el criterio
+ * del gestor y del wizard), o undefined si la key no cuelga de una sesión.
+ */
+export function sessionFromKey(key: string): string | undefined {
+  const match = /^blog\/images\/([^/]+)\/[^/]+$/.exec(key);
+  if (!match) return undefined;
+  const parsed = sessionNameSchema.safeParse(match[1]);
+  return parsed.success ? parsed.data : undefined;
 }
 
 export interface PortfolioObjectFile {

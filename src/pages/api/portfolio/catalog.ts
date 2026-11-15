@@ -1,12 +1,14 @@
 // Cataloga una imagen HUÉRFANA del bucket (está en R2 pero sin doc en `images`):
-// descarga el WebP, le extrae el EXIF y crea el doc vía upsertImage (invariantes:
-// insert con visible:false, category derivado). Idempotente por url; si el WebP
-// no trae EXIF, el doc se crea con los campos vacíos (edición manual después).
+// descarga el WebP, le extrae el EXIF y sus facts (dimensiones + color) y crea
+// el doc vía upsertImage (invariantes: insert con visible:false, category
+// derivado). La sesión se deriva de la carpeta blog/images/{sesión}/.
+// Idempotente por url; si el WebP no trae EXIF, el doc se crea con los campos
+// técnicos vacíos (edición manual después).
 //   POST { url } → { image }   (codes: bad_request, invalid_url, exif_fetch_failed)
 import type { APIRoute } from "astro";
 import { upsertImage } from "../../../lib/portfolioDb";
-import { extractExifFromUrl } from "../../../lib/portfolioImage";
-import { keyFromPublicUrl } from "../../../lib/portfolioStorage";
+import { analyzeImageFromUrl } from "../../../lib/portfolioImage";
+import { keyFromPublicUrl, sessionFromKey } from "../../../lib/portfolioStorage";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -32,8 +34,13 @@ export const POST: APIRoute = async (context) => {
   const file = key.split("/").at(-1) ?? key;
 
   try {
-    const exif = await extractExifFromUrl(url);
-    const image = await upsertImage(url, file, exif);
+    const { exif, facts } = await analyzeImageFromUrl(url);
+    const session = sessionFromKey(key);
+    const image = await upsertImage(url, file, {
+      ...exif,
+      ...(facts ?? {}),
+      ...(session ? { session } : {}),
+    });
     return json({ image });
   } catch (err) {
     if (err instanceof Error && err.message === "exif_fetch_failed") {

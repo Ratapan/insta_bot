@@ -34,6 +34,11 @@ interface TriageImage {
   visible: boolean;
   session?: string | null;
   series?: { id: string; order: number } | null;
+  width?: number;
+  height?: number;
+  color?: string;
+  /** ISO (llega por JSON). */
+  takenAt?: string;
 }
 
 type PatchableFields = Partial<
@@ -55,14 +60,21 @@ type PatchableFields = Partial<
     | "velocidad"
     | "camera"
     | "lens"
+    | "width"
+    | "height"
+    | "color"
+    | "takenAt"
   >
 >;
 
 /** Campos técnicos que puede rellenar la extracción de EXIF. */
 type ExifFields = Pick<
   TriageImage,
-  "focal" | "focalMm" | "apertura" | "iso" | "velocidad" | "camera" | "lens"
+  "focal" | "focalMm" | "apertura" | "iso" | "velocidad" | "camera" | "lens" | "takenAt"
 >;
+
+/** Dimensiones + color promedio del WebP publicado (los calcula el backend). */
+type FactsFields = Pick<TriageImage, "width" | "height" | "color">;
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_fields: "Hay campos con valores no válidos.",
@@ -652,11 +664,13 @@ function hasExif(img: TriageImage): boolean {
 const extractingUrl = ref<string | null>(null);
 
 /**
- * Pide el EXIF del WebP público al backend y, si trae algo, lo aplica por el
- * PATCH optimista habitual. El endpoint no escribe: el triage sigue siendo el
- * único escritor. Devuelve el nº de campos aplicados (0 = la imagen no traía EXIF).
+ * Pide al backend el EXIF y los facts (dimensiones + color promedio) del WebP
+ * público. El endpoint no escribe: el triage aplica el resultado por el PATCH
+ * optimista habitual y sigue siendo el único escritor.
  */
-async function fetchExif(url: string): Promise<ExifFields | null> {
+async function fetchTechnical(
+  url: string,
+): Promise<{ exif: ExifFields; facts: FactsFields | null }> {
   const res = await fetch("/api/portfolio/extract-exif", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -664,20 +678,29 @@ async function fetchExif(url: string): Promise<ExifFields | null> {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "unknown");
-  return (data.exif ?? null) as ExifFields | null;
+  return {
+    exif: (data.exif ?? {}) as ExifFields,
+    facts: (data.facts ?? null) as FactsFields | null,
+  };
 }
 
 async function extractExifForImage(img: TriageImage) {
   if (extractingUrl.value) return;
   extractingUrl.value = img.url;
   try {
-    const exif = await fetchExif(img.url);
-    if (!exif || Object.keys(exif).length === 0) {
+    const { exif, facts } = await fetchTechnical(img.url);
+    const fields: PatchableFields = { ...exif, ...(facts ?? {}) };
+    if (Object.keys(fields).length === 0) {
       showToast("La imagen no trae EXIF (o ya se descartó al convertirla).");
       return;
     }
-    if (await patchImage(img, exif)) {
-      showToast("Datos técnicos añadidos desde el EXIF.", "ok");
+    if (await patchImage(img, fields)) {
+      showToast(
+        Object.keys(exif).length > 0
+          ? "Datos técnicos añadidos desde el EXIF."
+          : "Sin EXIF; se guardaron las dimensiones y el color.",
+        "ok",
+      );
     }
   } catch (err) {
     showToast(messageFor(err instanceof Error ? err.message : "unknown"));
@@ -686,23 +709,27 @@ async function extractExifForImage(img: TriageImage) {
   }
 }
 
-/** Extrae EXIF para toda la selección (backfill masivo de las legacy). */
+/** Extrae EXIF + facts para toda la selección (backfill masivo de las legacy). */
 async function bulkExtractExif() {
   const targets = selectedImages.value;
   if (targets.length === 0 || bulkBusy.value) return;
   bulkBusy.value = true;
   bulkProgress.value = { done: 0, total: targets.length };
   let filled = 0;
+  let onlyFacts = 0;
   let empty = 0;
   let failed = 0;
   for (const img of targets) {
     try {
-      const exif = await fetchExif(img.url);
-      if (exif && Object.keys(exif).length > 0) {
-        if (await patchImage(img, exif, false)) filled += 1;
-        else failed += 1;
-      } else {
+      const { exif, facts } = await fetchTechnical(img.url);
+      const fields: PatchableFields = { ...exif, ...(facts ?? {}) };
+      if (Object.keys(fields).length === 0) {
         empty += 1;
+      } else if (await patchImage(img, fields, false)) {
+        if (Object.keys(exif).length > 0) filled += 1;
+        else onlyFacts += 1;
+      } else {
+        failed += 1;
       }
     } catch {
       failed += 1;
@@ -711,7 +738,8 @@ async function bulkExtractExif() {
   }
   bulkBusy.value = false;
   const parts = [`${filled} con EXIF`];
-  if (empty) parts.push(`${empty} sin EXIF`);
+  if (onlyFacts) parts.push(`${onlyFacts} solo dimensiones`);
+  if (empty) parts.push(`${empty} sin datos`);
   if (failed) parts.push(`${failed} con error`);
   showToast(parts.join(" · "), failed ? "error" : "ok");
 }

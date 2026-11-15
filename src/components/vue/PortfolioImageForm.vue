@@ -2,6 +2,8 @@
 // Editor de metadata de una imagen del portafolio: campos bilingües, técnica
 // (EXIF), categorías y flags de publicación. El botón "Generar con IA" pide a
 // Claude un borrador (caption/footer es+en, categorías) que el dueño revisa.
+// La sección "Original (privado)" adjunta o revisa el original full-res del
+// bucket privado (POST/GET /api/portfolio/original), base de la futura tienda.
 import { computed, reactive, ref } from "vue";
 
 interface PortfolioImageDoc {
@@ -22,6 +24,7 @@ interface PortfolioImageDoc {
   stars: number;
   portfolio: boolean;
   visible: boolean;
+  originalKey?: string;
 }
 
 const props = defineProps<{
@@ -78,6 +81,15 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_fields: "Hay campos con valores no válidos.",
   portfolio_unavailable:
     "No se pudo hablar con la base del portafolio. Revisa la configuración.",
+  not_found: "Guarda la metadata primero: la foto todavía no tiene doc.",
+  aspect_mismatch:
+    "Ese archivo no parece el original de esta foto (la proporción no coincide).",
+  originals_not_configured:
+    "Los originales no están configurados: falta PORTFOLIO_ORIGINALS_BUCKET.",
+  too_large: "El original supera el límite de 25MB.",
+  unsupported_type: "Formato no soportado para el original (JPG, PNG, WebP).",
+  storage_error: "No se pudo guardar el original en el bucket privado.",
+  no_original: "Esta foto todavía no tiene original guardado.",
 };
 
 function messageFor(code: string): string {
@@ -164,6 +176,55 @@ async function save() {
   }
 }
 
+// ---------- Original (bucket privado) ----------
+
+const originalKey = ref<string | null>(props.initial?.originalKey ?? null);
+const originalInput = ref<HTMLInputElement | null>(null);
+const attaching = ref(false);
+
+async function attachOriginal(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  attaching.value = true;
+  error.value = null;
+  try {
+    const body = new FormData();
+    body.append("url", props.imageUrl);
+    body.append("file", file);
+    const res = await fetch("/api/portfolio/original", { method: "POST", body });
+    const data = await res.json();
+    if (!res.ok) {
+      error.value = messageFor(data.error);
+      return;
+    }
+    originalKey.value = data.originalKey;
+  } catch {
+    error.value = messageFor("unknown");
+  } finally {
+    attaching.value = false;
+    input.value = "";
+  }
+}
+
+async function viewOriginal() {
+  error.value = null;
+  try {
+    const res = await fetch(
+      `/api/portfolio/original?url=${encodeURIComponent(props.imageUrl)}`,
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      error.value = messageFor(data.error);
+      return;
+    }
+    // URL prefirmada de corta duración: el bucket de originales no es público.
+    window.open(data.url, "_blank", "noopener");
+  } catch {
+    error.value = messageFor("unknown");
+  }
+}
+
 async function removeDoc() {
   const alsoObject = confirm(
     "¿Borrar también el archivo del bucket?\n\nAceptar: borra metadata Y archivo.\nCancelar: solo pregunta por la metadata.",
@@ -223,6 +284,52 @@ async function removeDoc() {
         >
           {{ generating ? "Generando…" : "✨ Generar con IA" }}
         </button>
+      </div>
+
+      <!-- Original full-res (bucket privado) -->
+      <div class="mt-4 rounded-xl border border-neutral-200 bg-white p-4">
+        <p class="text-sm font-medium">Original (privado)</p>
+        <p v-if="originalKey" class="mt-1 break-all text-xs text-green-700">
+          Guardado ✓ <span class="font-mono text-neutral-500">{{ originalKey }}</span>
+        </p>
+        <p v-else class="mt-1 text-xs text-neutral-500">
+          {{
+            exists
+              ? "Sin original. Adjúntalo para poder venderla más adelante."
+              : "Guarda la metadata primero para poder adjuntar el original."
+          }}
+        </p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            :disabled="attaching || !exists"
+            class="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-100 disabled:opacity-50"
+            @click="originalInput?.click()"
+          >
+            {{
+              attaching
+                ? "Subiendo original…"
+                : originalKey
+                  ? "Reemplazar original"
+                  : "Adjuntar original"
+            }}
+          </button>
+          <button
+            v-if="originalKey"
+            type="button"
+            class="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-100"
+            @click="viewOriginal"
+          >
+            Ver original
+          </button>
+        </div>
+        <input
+          ref="originalInput"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          class="hidden"
+          @change="attachOriginal"
+        />
       </div>
     </div>
 

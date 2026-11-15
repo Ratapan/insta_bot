@@ -3,9 +3,10 @@
 // posts para mainImage y los bloques image/slide. Navega el bucket público vía
 // /api/portfolio/browse (mismo cruce R2+Mongo que el gestor): permite elegir una
 // imagen existente —catalogada o huérfana—, subir una nueva a la carpeta de
-// sesión que estés navegando, y "Catalogar" una huérfana (image:null) para
-// crearle el doc con su EXIF. Emite solo la URL pública; el post referencia esa
-// url y el sitio enriquece el resto desde `images`.
+// sesión que estés navegando (el upload ya le crea el doc oculto y guarda su
+// original privado), y "Catalogar" una huérfana (image:null) para crearle el doc
+// con su EXIF. Emite solo la URL pública; el post referencia esa url y el sitio
+// enriquece el resto desde `images`.
 import { computed, ref, watch } from "vue";
 
 interface ImageDoc {
@@ -92,6 +93,13 @@ async function onUpload(event: Event) {
             ? "Formato no soportado (JPG, PNG, WebP)."
             : "No se pudo subir la imagen.";
       return;
+    }
+    // El upload ya crea el doc (oculto) y guarda el original privado.
+    if (data.original === "failed") {
+      alert(
+        "La imagen se subió, pero no se guardó el original.\n" +
+          "Puedes adjuntarlo después desde el gestor del portafolio.",
+      );
     }
     await load();
     emit("select", data.url); // auto-selecciona la recién subida

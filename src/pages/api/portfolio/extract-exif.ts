@@ -1,11 +1,13 @@
-// Extrae los datos técnicos (EXIF) de un WebP público del portafolio y los
-// DEVUELVE, sin tocar Mongo. Lo usa la cola de revisión para rellenar los campos
-// técnicos de un doc que ya existe: el triage escribe todo por su PATCH optimista
-// (único escritor), así que aquí solo leemos. Para huérfanas (sin doc) está
-// /api/portfolio/catalog, que sí hace upsert.
-//   POST { url } → { exif }   (codes: bad_request, invalid_url, exif_fetch_failed)
+// Extrae los datos técnicos (EXIF) y los facts (dimensiones + color promedio)
+// de un WebP público del portafolio y los DEVUELVE, sin tocar Mongo. Lo usa la
+// cola de revisión para rellenar los campos técnicos de un doc que ya existe:
+// el triage escribe todo por su PATCH optimista (único escritor), así que aquí
+// solo leemos. Para huérfanas (sin doc) está /api/portfolio/catalog, que sí
+// hace upsert.
+//   POST { url } → { exif, facts }   facts = null si sharp no pudo leerla
+//   (codes: bad_request, invalid_url, exif_fetch_failed)
 import type { APIRoute } from "astro";
-import { extractExifFromUrl } from "../../../lib/portfolioImage";
+import { analyzeImageFromUrl } from "../../../lib/portfolioImage";
 import { keyFromPublicUrl } from "../../../lib/portfolioStorage";
 
 function json(body: unknown, status = 200) {
@@ -30,8 +32,8 @@ export const POST: APIRoute = async (context) => {
   if (!keyFromPublicUrl(url)) return json({ error: "invalid_url" }, 400);
 
   try {
-    const exif = await extractExifFromUrl(url);
-    return json({ exif });
+    const { exif, facts } = await analyzeImageFromUrl(url);
+    return json({ exif, facts });
   } catch (err) {
     if (err instanceof Error && err.message === "exif_fetch_failed") {
       return json({ error: "exif_fetch_failed" }, 502);

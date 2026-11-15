@@ -1,11 +1,12 @@
 // Procesado de imágenes del portafolio: extracción EXIF (campos técnicos del
-// doc Image) y conversión a WebP.
+// doc Image), conversión a WebP y "facts" del WebP publicado (dimensiones y
+// color promedio, que el sitio usa para reservar el hueco y el placeholder).
 //
 // EXIF y privacidad: toWebp() reescribe en el WebP publicado SOLO los campos de
 // cámara (marca, modelo, exposición, focal, ISO, lente, fecha de captura) y
 // JAMÁS los de GPS ni ubicación — las fotos del portfolio son públicas. Antes esta conversión
 // borraba toda la metadata; ahora la conserva de forma SELECTIVA para que una
-// imagen del bucket se pueda recatalogar por su EXIF (ver extractExifFromUrl) y
+// imagen del bucket se pueda recatalogar por su EXIF (ver analyzeImageFromUrl) y
 // para que convivan los dos linajes (WebP convertidos afuera con EXIF + los que
 // genera la app) en "WebP con metadata de cámara, sin GPS".
 //
@@ -43,6 +44,35 @@ export interface ExifFields {
   velocidad?: string;
   camera?: string;
   lens?: string;
+  takenAt?: Date;
+}
+
+// "YYYY:MM:DD HH:MM:SS" (formato EXIF; algunos exportadores usan "T").
+const EXIF_DATE = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/;
+
+/**
+ * Fecha EXIF → Date. El EXIF no trae zona horaria: se toma la hora de pared de
+ * la cámara como si fuera UTC (sirve para ordenar y agrupar por día sin
+ * inventar una zona). Descarta placeholders como "0000:00:00 00:00:00".
+ */
+export function parseExifDate(raw: unknown): Date | undefined {
+  if (typeof raw !== "string") return undefined;
+  const m = EXIF_DATE.exec(raw.trim());
+  if (!m) return undefined;
+  const [y, mo, d, h, mi, s] = m.slice(1).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  if (y < 1900 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) {
+    return undefined;
+  }
+  const date = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+  // Date.UTC desborda días imposibles (31 de febrero → marzo): se descartan.
+  return date.getUTCDate() === d ? date : undefined;
 }
 
 /**
@@ -100,19 +130,74 @@ export function extractExif(buffer: Buffer): ExifFields {
   const lens = cleanExifText(tags.LensModel?.description);
   if (lens) fields.lens = lens;
 
+  const takenAt =
+    parseExifDate(tags.DateTimeOriginal?.description) ??
+    parseExifDate(tags.DateTimeDigitized?.description);
+  if (takenAt) fields.takenAt = takenAt;
+
   return fields;
 }
 
+// --- Facts del WebP publicado ------------------------------------------------
+
+/** Dimensiones visibles y color promedio de una imagen. */
+export interface ImageFacts {
+  width: number;
+  height: number;
+  /** Color promedio "#rrggbb" (placeholder mientras carga la foto). */
+  color: string;
+}
+
 /**
- * Descarga un WebP público y le extrae el EXIF. Para recatalogar imágenes
- * huérfanas (están en R2 pero no en la colección `images`) desde el selector.
- * Lanza si la descarga falla; si el WebP no trae EXIF devuelve {} (best-effort).
+ * Ancho y alto VISIBLES (con la orientación EXIF aplicada) leyendo solo la
+ * cabecera, sin decodificar. Los WebP que genera toWebp() ya vienen rotados,
+ * pero los convertidos afuera o un original de cámara pueden traer Orientation.
  */
-export async function extractExifFromUrl(url: string): Promise<ExifFields> {
+export async function orientedSize(
+  buffer: Buffer,
+): Promise<{ width: number; height: number }> {
+  const meta = await sharp(buffer).metadata();
+  const width = meta.autoOrient?.width ?? meta.width;
+  const height = meta.autoOrient?.height ?? meta.height;
+  if (!width || !height) throw new Error("image_unreadable");
+  return { width, height };
+}
+
+/**
+ * Dimensiones visibles + color promedio (media de cada canal). Se usa el
+ * promedio y no el `dominant` de sharp (el tono más frecuente): en fotos con
+ * sombras el dominante sale casi negro (#080808) aunque la foto no lo sea, y
+ * como placeholder no dice nada. Lanza si sharp no puede leer la imagen.
+ */
+export async function imageFacts(buffer: Buffer): Promise<ImageFacts> {
+  const [{ width, height }, { channels }] = await Promise.all([
+    orientedSize(buffer),
+    sharp(buffer).stats(),
+  ]);
+  // Escala de grises (1 canal) → mismo valor en R, G y B; el alfa se ignora.
+  const [r, g, b] =
+    channels.length >= 3
+      ? [channels[0]!.mean, channels[1]!.mean, channels[2]!.mean]
+      : [channels[0]!.mean, channels[0]!.mean, channels[0]!.mean];
+  const hex = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return { width, height, color: `#${hex(r)}${hex(g)}${hex(b)}` };
+}
+
+/**
+ * Descarga un WebP público y devuelve su EXIF y sus facts (una sola descarga).
+ * Para catalogar huérfanas y rellenar datos técnicos desde la cola de revisión.
+ * Lanza "exif_fetch_failed" si la descarga falla. EXIF y facts son best-effort:
+ * sin EXIF → exif = {}; si sharp no puede leer la imagen → facts = null.
+ */
+export async function analyzeImageFromUrl(
+  url: string,
+): Promise<{ exif: ExifFields; facts: ImageFacts | null }> {
   const res = await fetch(url);
   if (!res.ok) throw new Error("exif_fetch_failed");
   const buffer = Buffer.from(await res.arrayBuffer());
-  return extractExif(buffer);
+  const facts = await imageFacts(buffer).catch(() => null);
+  return { exif: extractExif(buffer), facts };
 }
 
 // --- EXIF de cámara para el WebP (sin GPS) ----------------------------------

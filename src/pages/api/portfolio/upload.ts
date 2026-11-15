@@ -1,9 +1,36 @@
-// Sube una imagen al bucket público del portafolio: extrae el EXIF del
-// original (sharp lo elimina al re-encodear), la convierte a WebP y devuelve
-// la key, la URL pública y el EXIF para precargar el formulario de metadata.
+// Sube una imagen al portafolio y deja su doc listo en Mongo:
+//   1. EXIF del ORIGINAL (sharp lo elimina al re-encodear) → WebP ≤2560px →
+//      facts del WebP (dimensiones visibles + color promedio).
+//   2. WebP → bucket PÚBLICO. Obligatorio: si falla, 502 storage_error.
+//   3. Original tal cual → bucket PRIVADO de originales. Best-effort: sin
+//      PORTFOLIO_ORIGINALS_BUCKET se salta; si falla se informa y se puede
+//      reintentar con "Adjuntar original" (POST /api/portfolio/original).
+//   4. Upsert del doc con los datos técnicos (EXIF + facts + originalKey +
+//      session si la carpeta es blog/images/{sesión}). Best-effort también.
+//      upsertImage inserta SIEMPRE con visible:false, así que nada se publica
+//      sin revisión, y ninguna subida queda huérfana ni pierde su original.
+//
+// Respuesta: { key, url, file, size, exif, facts, originalKey, original, image,
+//   docError? }   original: "stored" | "not_configured" | "failed"
+//   image = el doc creado/actualizado, o null si Mongo falló (docError).
 import type { APIRoute } from "astro";
-import { extractExif, toWebp } from "../../../lib/portfolioImage";
-import { publicUrl, uploadPortfolioObject } from "../../../lib/portfolioStorage";
+import { upsertImage, type PortfolioImage } from "../../../lib/portfolioDb";
+import {
+  extractExif,
+  imageFacts,
+  toWebp,
+  type ImageFacts,
+} from "../../../lib/portfolioImage";
+import {
+  originalKeyFor,
+  originalsConfigured,
+  putOriginal,
+} from "../../../lib/portfolioOriginals";
+import {
+  publicUrl,
+  sessionFromKey,
+  uploadPortfolioObject,
+} from "../../../lib/portfolioStorage";
 import { sanitizeRelPath } from "../../../lib/storage";
 
 // Los originales de cámara pueden ser grandes; el WebP publicado será mucho
@@ -39,29 +66,76 @@ export const POST: APIRoute = async (context) => {
     return json({ error: "too_large" }, 400);
   }
 
+  let baseName: string;
+  let dir: string;
   try {
-    const original = Buffer.from(await file.arrayBuffer());
+    baseName = sanitizeRelPath(file.name).replace(/\.[^.]+$/, "");
+    dir = sanitizeRelPath(path);
+  } catch {
+    return json({ error: "bad_request" }, 400);
+  }
+  if (!baseName || baseName.includes("/")) return json({ error: "bad_request" }, 400);
+  const key = dir ? `${dir}/${baseName}.webp` : `${baseName}.webp`;
+  const url = publicUrl(key);
 
+  // 1 + 2: procesado y WebP público (lo único obligatorio).
+  let original: Buffer;
+  let exif: ReturnType<typeof extractExif>;
+  let webp: Buffer;
+  let facts: ImageFacts | null;
+  try {
+    original = Buffer.from(await file.arrayBuffer());
     // EXIF del original ANTES de convertir.
-    const exif = extractExif(original);
-    const webp = await toWebp(original);
-
-    const baseName = sanitizeRelPath(file.name).replace(/\.[^.]+$/, "");
-    if (!baseName) return json({ error: "bad_request" }, 400);
-    const dir = sanitizeRelPath(path);
-    const key = dir ? `${dir}/${baseName}.webp` : `${baseName}.webp`;
-
+    exif = extractExif(original);
+    webp = await toWebp(original);
+    facts = await imageFacts(webp).catch(() => null);
     await uploadPortfolioObject(key, new Uint8Array(webp), "image/webp");
-
-    return json({
-      key,
-      url: publicUrl(key),
-      file: `${baseName}.webp`,
-      size: webp.byteLength,
-      exif,
-    });
   } catch (err) {
     console.error("[portfolio/upload]", err);
     return json({ error: "storage_error" }, 502);
   }
+
+  // 3: original al bucket privado (best-effort).
+  let originalKey: string | null = null;
+  let originalStatus: "stored" | "not_configured" | "failed" = "not_configured";
+  if (originalsConfigured()) {
+    try {
+      const candidate = originalKeyFor(key, file.type);
+      await putOriginal(candidate, new Uint8Array(original), file.type);
+      originalKey = candidate;
+      originalStatus = "stored";
+    } catch (err) {
+      console.error("[portfolio/upload] original", err);
+      originalStatus = "failed";
+    }
+  }
+
+  // 4: doc con los datos técnicos (best-effort).
+  const session = sessionFromKey(key);
+  let image: PortfolioImage | null = null;
+  let docError: string | undefined;
+  try {
+    image = await upsertImage(url, `${baseName}.webp`, {
+      ...exif,
+      ...(facts ?? {}),
+      ...(originalKey ? { originalKey } : {}),
+      ...(session ? { session } : {}),
+    });
+  } catch (err) {
+    console.error("[portfolio/upload] doc", err);
+    docError = "portfolio_unavailable";
+  }
+
+  return json({
+    key,
+    url,
+    file: `${baseName}.webp`,
+    size: webp.byteLength,
+    exif,
+    facts,
+    originalKey,
+    original: originalStatus,
+    image,
+    ...(docError ? { docError } : {}),
+  });
 };

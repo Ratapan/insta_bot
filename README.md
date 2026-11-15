@@ -103,6 +103,16 @@ Estas variables conectan con la infraestructura de `portfolio_2025` (son sus cre
 - `PORTFOLIO_MONGODB_URI` — la **misma URI** que el `MONGODB_URI` del portfolio (base de datos `rtp_blog` en la URI).
 - `PORTFOLIO_R2_ACCOUNT_ID` / `PORTFOLIO_R2_ACCESS_KEY_ID` / `PORTFOLIO_R2_SECRET_ACCESS_KEY` / `PORTFOLIO_R2_BUCKET` — el bucket R2 **público** del portfolio (distinto de `insta-bot-media`, que es privado). Crea el token igual que en la sección anterior, restringido a ese bucket.
 - `PORTFOLIO_ASSETS_BASE_URL` — URL pública del bucket: `https://assets.javiersabando.lat`.
+- `PORTFOLIO_ORIGINALS_BUCKET` — bucket R2 **privado** para los originales full-res (p. ej. `portfolio-originals`). Créalo **sin** dominio propio y **sin** acceso público `r2.dev`. Usa las mismas credenciales `PORTFOLIO_R2_*`, así que el token necesita *Object Read & Write* en los dos buckets. Si la variable queda vacía, las subidas funcionan igual, pero sin guardar el original.
+
+### Backfill de dimensiones y color
+
+Los docs anteriores a estos campos (`width`, `height`, `color`, `takenAt`) se rellenan con un script que lee las imágenes por su URL pública:
+
+```bash
+pnpm backfill:image-facts            # dry-run: calcula y muestra, no escribe
+pnpm backfill:image-facts --apply    # backup JSON en backups/ y luego escribe
+```
 
 ## Resumen
 
@@ -120,3 +130,4 @@ Estas variables conectan con la infraestructura de `portfolio_2025` (son sus cre
 | `PORTFOLIO_MONGODB_URI` | El `MONGODB_URI` de portfolio_2025 |
 | `PORTFOLIO_R2_*` | Credenciales del bucket público del portfolio |
 | `PORTFOLIO_ASSETS_BASE_URL` | `https://assets.javiersabando.lat` |
+| `PORTFOLIO_ORIGINALS_BUCKET` | Nombre del bucket R2 privado de originales |

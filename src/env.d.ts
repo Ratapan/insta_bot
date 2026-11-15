@@ -27,6 +27,8 @@ interface ImportMetaEnv {
   readonly PORTFOLIO_R2_SECRET_ACCESS_KEY?: string;
   readonly PORTFOLIO_R2_BUCKET?: string;
   readonly PORTFOLIO_ASSETS_BASE_URL?: string;
+  /** Bucket R2 PRIVADO de originales full-res (mismas credenciales PORTFOLIO_R2_*). */
+  readonly PORTFOLIO_ORIGINALS_BUCKET?: string;
 }
 
 interface ImportMeta {

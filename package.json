@@ -10,7 +10,8 @@
     "start": "node ./dist/server/entry.mjs",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "astro": "astro"
+    "astro": "astro",
+    "backfill:image-facts": "node --env-file=.env scripts/backfill-image-facts.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
