@@ -3,6 +3,7 @@
 // usuario: cualquier sesión válida es el dueño.
 import Layout from "../../layouts/Layout.astro";
 import PortfolioManager from "../../components/vue/PortfolioManager.vue";
+import PortfolioPublish from "../../components/vue/PortfolioPublish.vue";
 ---
 
 <Layout title="Portafolio — InstaCaptions">
@@ -40,5 +41,6 @@ import PortfolioManager from "../../components/vue/PortfolioManager.vue";
     (se convierten a WebP), genera la metadata bilingüe con IA y publícalas en
     la galería.
   </p>
+  <PortfolioPublish client:load />
   <PortfolioManager client:load />
 </Layout>

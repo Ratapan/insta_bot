@@ -5,7 +5,7 @@
 // Mongoose, van a mano: `updatedAt` en cada escritura, `createdAt` al insertar,
 // slug único (autogenerado desde el título si falta) y la portada por defecto.
 import type { Collection, UpdateFilter } from "mongodb";
-import { getDb } from "./portfolioDb";
+import { getDb, markSiteChanged } from "./portfolioDb";
 import { ensureUniqueSlug } from "./slug";
 import {
   collectionInputSchema,
@@ -121,5 +121,6 @@ export async function updateCollectionBySlug(
 export async function deleteCollectionBySlug(slug: string): Promise<boolean> {
   const col = await getCollectionsCollection();
   const result = await col.deleteOne({ slug });
+  if (result.deletedCount === 1) await markSiteChanged();
   return result.deletedCount === 1;
 }

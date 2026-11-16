@@ -29,6 +29,8 @@ interface ImportMetaEnv {
   readonly PORTFOLIO_ASSETS_BASE_URL?: string;
   /** Bucket R2 PRIVADO de originales full-res (mismas credenciales PORTFOLIO_R2_*). */
   readonly PORTFOLIO_ORIGINALS_BUCKET?: string;
+  /** Deploy Hook de Vercel del proyecto portfolio_2026 («Publicar sitio»). Secreta. */
+  readonly PORTFOLIO_DEPLOY_HOOK_URL?: string;
 }
 
 interface ImportMeta {

@@ -44,6 +44,21 @@ export async function getDb(): Promise<Db> {
   return client.db();
 }
 
+/**
+ * Marca que el sitio cambió sin dejar `updatedAt` en ningún documento (borrados
+ * y cambios del vocabulario), para que «Publicar sitio» lo cuente como
+ * pendiente (ver portfolioPublish.ts). Best-effort: si falla, solo se avisa en
+ * consola; la operación que lo llamó ya se hizo.
+ */
+export async function markSiteChanged(): Promise<void> {
+  try {
+    const meta = (await getDb()).collection<{ _id: string; changedAt?: Date }>("site_meta");
+    await meta.updateOne({ _id: "publish" }, { $set: { changedAt: new Date() } }, { upsert: true });
+  } catch (err) {
+    console.error("[portfolio] no se pudo marcar el cambio para publicar", err);
+  }
+}
+
 async function getCollection(): Promise<Collection<PortfolioImage>> {
   return (await getDb()).collection<PortfolioImage>("images");
 }
@@ -219,6 +234,7 @@ export async function listAllImages(): Promise<PortfolioImage[]> {
 export async function deleteImageByUrl(url: string): Promise<boolean> {
   const col = await getCollection();
   const result = await col.deleteOne({ url });
+  if (result.deletedCount === 1) await markSiteChanged();
   return result.deletedCount === 1;
 }
 
@@ -385,6 +401,7 @@ export async function renameCategoryEverywhere(
   );
   // Si el destino era hijo del origen, habría quedado colgando de sí mismo.
   await tcol.updateOne({ name: to, parent: to }, { $set: { parent: null } });
+  await markSiteChanged();
 
   return { affected: docs.length, merged: !!toTag };
 }
@@ -421,6 +438,7 @@ export async function removeCategoryEverywhere(
     else update.$unset = { category: "" };
     await col.updateOne({ _id: doc._id }, update);
   }
+  if (docs.length) await markSiteChanged();
   return { affected: docs.length };
 }
 
@@ -434,6 +452,7 @@ export async function deleteTag(rawName: string): Promise<boolean> {
     { $set: { parent: tag.parent ?? null } },
     { collation: TAG_COLLATION },
   );
+  await markSiteChanged();
   return true;
 }
 
@@ -472,6 +491,7 @@ export async function setTagParent(
     { collation: TAG_COLLATION, returnDocument: "after" },
   );
   if (!updated) throw new Error("not_found");
+  await markSiteChanged();
   return updated;
 }
 

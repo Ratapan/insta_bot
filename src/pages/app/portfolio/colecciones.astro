@@ -3,6 +3,7 @@
 // fotos en orden). El sitio las publica en /colecciones/.
 import Layout from "../../../layouts/Layout.astro";
 import PortfolioCollections from "../../../components/vue/PortfolioCollections.vue";
+import PortfolioPublish from "../../../components/vue/PortfolioPublish.vue";
 ---
 
 <Layout title="Colecciones — InstaCaptions">
@@ -14,5 +15,6 @@ import PortfolioCollections from "../../../components/vue/PortfolioCollections.v
     Ensayos fotográficos de <span class="font-medium">javiersabando.lat</span>. Solo se publican las
     marcadas como «Publicada», y dentro de ellas solo las fotos visibles.
   </p>
+  <PortfolioPublish client:load />
   <PortfolioCollections client:load />
 </Layout>

@@ -15,7 +15,7 @@
 
 import type { Collection, OptionalUnlessRequiredId } from "mongodb";
 import sanitizeHtml from "sanitize-html";
-import { getDb } from "./portfolioDb";
+import { getDb, markSiteChanged } from "./portfolioDb";
 import { ensureUniqueSlug, slugify } from "./slug";
 import {
   blogInputSchema,
@@ -390,5 +390,6 @@ export async function updateBlogBySlug(
 export async function deleteBlogBySlug(slug: string): Promise<boolean> {
   const col = await getBlogsCollection();
   const result = await col.deleteOne({ slug });
+  if (result.deletedCount === 1) await markSiteChanged();
   return result.deletedCount === 1;
 }

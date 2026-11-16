@@ -3,6 +3,7 @@
 // archivar/restaurar y eliminar. La generación con IA no entra en esta fase.
 import Layout from "../../../layouts/Layout.astro";
 import PortfolioBlogList from "../../../components/vue/PortfolioBlogList.vue";
+import PortfolioPublish from "../../../components/vue/PortfolioPublish.vue";
 ---
 
 <Layout title="Posts — InstaCaptions">
@@ -17,5 +18,6 @@ import PortfolioBlogList from "../../../components/vue/PortfolioBlogList.vue";
     borradores y archivados solo se ven aquí; el sitio publica lo que esté en
     estado «publicado».
   </p>
+  <PortfolioPublish client:load />
   <PortfolioBlogList client:load />
 </Layout>
