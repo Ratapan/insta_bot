@@ -141,3 +141,54 @@ export const portfolioSessionInputSchema = portfolioSessionSchema.pick({
 
 export type PortfolioSession = z.infer<typeof portfolioSessionSchema>;
 export type PortfolioSessionInput = z.infer<typeof portfolioSessionInputSchema>;
+
+// --- Colecciones curadas (colección `collections`) ---
+//
+// Ensayos fotográficos: título e intro bilingües, portada y fotos en orden.
+// Solo insta_bot escribe; portfolio_2026 las lee en el build. Invariantes:
+//   - `published` entra false: nada se publica sin acción explícita.
+//   - `photos` son URLs públicas del bucket, sin repetidas, en el orden en que
+//     se muestran. El sitio publica solo las que tengan visible:true.
+//   - `cover` es una de las fotos; si falta, la capa Mongo usa photos[0].
+//   - Una colección publicada tiene al menos una foto.
+//   - `intro`/`intro_en` son texto plano (párrafos separados por línea en blanco).
+
+export const collectionSlugSchema = trimmed.regex(/^[a-z0-9-]+$/);
+
+export const collectionInputSchema = z
+  .object({
+    title: trimmed.min(1).max(120),
+    title_en: trimmed.max(120).optional(),
+    // Vacío = autogenerar desde el título (lo resuelve la capa Mongo).
+    slug: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      collectionSlugSchema.optional(),
+    ),
+    intro: trimmed.max(3000).optional(),
+    intro_en: trimmed.max(3000).optional(),
+    cover: trimmed.min(1).optional(),
+    photos: z
+      .array(trimmed.min(1))
+      .max(500)
+      .transform((urls) => [...new Set(urls)])
+      .default([]),
+    published: z.boolean().default(false),
+    /** Orden en el listado del sitio (menor primero). */
+    order: z.number().int().min(0).max(9999).default(0),
+  })
+  .refine((c) => !c.published || c.photos.length > 0, {
+    message: "published_requires_photos",
+    path: ["photos"],
+  })
+  .refine((c) => !c.cover || c.photos.includes(c.cover), {
+    message: "cover_not_in_photos",
+    path: ["cover"],
+  });
+
+export type CollectionInput = z.infer<typeof collectionInputSchema>;
+
+export type PortfolioCollection = Omit<CollectionInput, "slug"> & {
+  slug: string;
+  createdAt: Date;
+  updatedAt: Date;
+};

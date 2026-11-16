@@ -1,0 +1,18 @@
+---
+// Colecciones curadas del portafolio (ensayos con portada, intro bilingüe y
+// fotos en orden). El sitio las publica en /colecciones/.
+import Layout from "../../../layouts/Layout.astro";
+import PortfolioCollections from "../../../components/vue/PortfolioCollections.vue";
+---
+
+<Layout title="Colecciones — InstaCaptions">
+  <div class="mb-2 flex items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold">Colecciones del portafolio</h1>
+    <a href="/app/portfolio" class="text-sm text-neutral-600 hover:text-pink-600">← Volver al gestor</a>
+  </div>
+  <p class="mb-8 text-sm text-neutral-600">
+    Ensayos fotográficos de <span class="font-medium">javiersabando.lat</span>. Solo se publican las
+    marcadas como «Publicada», y dentro de ellas solo las fotos visibles.
+  </p>
+  <PortfolioCollections client:load />
+</Layout>

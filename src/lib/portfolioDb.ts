@@ -222,6 +222,29 @@ export async function deleteImageByUrl(url: string): Promise<boolean> {
   return result.deletedCount === 1;
 }
 
+/** Sesiones que tienen fotos (campo `session` de las imágenes), con su conteo. */
+export async function sessionsInUse(): Promise<{ session: string; count: number }[]> {
+  const col = await getCollection();
+  const rows = await col
+    .aggregate<{ _id: string; count: number }>([
+      { $match: { session: { $nin: [null, ""] } } },
+      { $group: { _id: "$session", count: { $sum: 1 } } },
+      { $sort: { _id: -1 } },
+    ])
+    .toArray();
+  return rows.map((r) => ({ session: r._id, count: r.count }));
+}
+
+/** URLs de las fotos de una sesión, en orden de captura (o de alta). */
+export async function imageUrlsBySession(session: string): Promise<string[]> {
+  const col = await getCollection();
+  const docs = await col
+    .find({ session }, { projection: { url: 1 } })
+    .sort({ takenAt: 1, createdAt: 1, _id: 1 })
+    .toArray();
+  return docs.map((d) => d.url);
+}
+
 /** Sesiones de fotos (contexto para la IA), más recientes primero (llevan prefijo de fecha). */
 export async function listSessions(): Promise<PortfolioSession[]> {
   const col = await getSessionsCollection();
