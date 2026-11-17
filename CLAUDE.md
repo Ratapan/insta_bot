@@ -10,7 +10,7 @@ The README.md is the authoritative setup guide (Meta app config, R2 config, Rail
 
 ## Commands
 
-Package manager is **pnpm**. Native deps (`better-sqlite3`, `sharp`, `esbuild`, `exifreader`, `@tailwindcss/oxide`) must be listed under `onlyBuiltDependencies` in `pnpm-workspace.yaml` or pnpm skips their build scripts and the bindings fail at boot (`Could not locate the bindings file`). After adding one, run `pnpm rebuild <pkg>`.
+Package manager is **pnpm** (12 on the dev machine; the project isn't pinned). Native deps (`better-sqlite3`, `sharp`, `esbuild`, `exifreader`, `@tailwindcss/oxide`) must be listed in `pnpm-workspace.yaml` under BOTH `allowBuilds` (`pkg: true`, read by pnpm 12) and `onlyBuiltDependencies` (read by pnpm 10.17), or pnpm skips their build scripts and the bindings fail at boot (`Could not locate the bindings file`, which the dev server reports as `MiddlewareCantBeLoaded`). After adding one, run `pnpm rebuild <pkg>`.
 
 | Command | Purpose |
 | --- | --- |

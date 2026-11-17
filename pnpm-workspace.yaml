@@ -2,8 +2,17 @@ packages:
   - '.'
 
 # pnpm bloquea los build scripts por defecto; los deps nativos necesitan
-# aprobación explícita o sus bindings no se compilan (mismo objetivo que el
-# allowBuilds de portfolio_2025, con la sintaxis de pnpm 10.17).
+# aprobación explícita o sus bindings no se compilan y la app no arranca
+# ("Could not locate the bindings file" / MiddlewareCantBeLoaded).
+# Van las dos sintaxis: pnpm 12 lee `allowBuilds` (e ignora la otra) y
+# pnpm 10.17 lee `onlyBuiltDependencies` (e ignora `allowBuilds`).
+allowBuilds:
+  '@tailwindcss/oxide': true
+  better-sqlite3: true
+  esbuild: true
+  exifreader: true
+  sharp: true
+
 onlyBuiltDependencies:
   - '@tailwindcss/oxide'
   - better-sqlite3
