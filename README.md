@@ -1,6 +1,6 @@
 # InstaCaptions (insta_bot)
 
-App web de un solo usuario que genera captions de Instagram con Claude y los publica directamente en una cuenta Business/Creator. Además funciona como **centro de administración de contenido del portfolio** [javiersabando.lat](https://javiersabando.lat) (repo `portfolio_2025`): subida de imágenes, conversión a WebP, extracción de EXIF y generación de metadatos bilingües con IA.
+App web de un solo usuario que genera captions de Instagram con Claude y los publica directamente en una cuenta Business/Creator. Además funciona como **centro de administración de contenido del portfolio** [javiersabando.lat](https://javiersabando.lat) (repo `portfolio_2026`): subida de imágenes, conversión a WebP, extracción de EXIF y generación de metadatos bilingües con IA.
 
 **Stack:** Astro 5 (SSR) · Vue 3 (islands) · Tailwind CSS 4 · Drizzle ORM + SQLite · Cloudflare R2 · Anthropic SDK.
 
@@ -40,12 +40,12 @@ Las migraciones de SQLite se aplican solas al arrancar (no hay paso de migrate a
 
 - `src/pages/app/*.astro` — páginas de la app (shells finos que montan islas Vue).
 - `src/pages/api/*` — API JSON: `instagram/`, `captions/`, `storage/` (biblioteca R2 propia) y `portfolio/` (gestor del portfolio).
-- `src/lib/` — wrappers de servicios externos: `instagram.ts`, `claude.ts`, `storage.ts` (R2 privado) y los módulos del portfolio (`portfolioDb.ts`, `portfolioStorage.ts`, `portfolioImage.ts`).
+- `src/lib/` — wrappers de servicios externos: `instagram.ts`, `claude.ts`, `storage.ts` (R2 privado) y los módulos del portfolio (`portfolioDb.ts`, `portfolioBlogDb.ts`, `portfolioCollectionsDb.ts`, `portfolioStorage.ts`, `portfolioOriginals.ts`, `portfolioImage.ts`, `portfolioPublish.ts`).
 - `src/middleware.ts` — guarda `/app/*` y `/api/*` con la sesión de usuario único.
 
-## Despliegue
+## Dónde corre
 
-`pnpm build` + `pnpm start`. La BD SQLite vive en `DATABASE_PATH` (por defecto `./data/app.db`): en producción (Railway) necesita un volumen persistente. Definir todas las variables del `.env` en el entorno, incluida `APP_PASSWORD`. Las migraciones se aplican automáticamente en cada arranque.
+Solo en local (`pnpm dev`); no hay un despliegue activo. Si algún día se despliega: `pnpm build` + `pnpm start`, con la BD SQLite (`DATABASE_PATH`, por defecto `./data/app.db`) en un volumen persistente y todas las variables del `.env` en el entorno, incluida `APP_PASSWORD`. Las migraciones se aplican automáticamente en cada arranque.
 
 ---
 
@@ -98,9 +98,10 @@ Scopes que pide la app: `instagram_business_basic,instagram_business_content_pub
 
 ## Gestor del portfolio (`PORTFOLIO_*`)
 
-Estas variables conectan con la infraestructura de `portfolio_2025` (son sus credenciales, no unas nuevas):
+Estas variables conectan con la infraestructura del portfolio (javiersabando.lat, repo `portfolio_2026`):
 
-- `PORTFOLIO_MONGODB_URI` — la **misma URI** que el `MONGODB_URI` del portfolio (base de datos `rtp_blog` en la URI).
+- `PORTFOLIO_MONGODB_URI` — URI de la base `rtp_blog` **con permisos de escritura**. El sitio usa otra, de solo lectura (usuario `portfolio_build`), y solo al compilar.
+- `PORTFOLIO_DEPLOY_HOOK_URL` — Deploy Hook de Vercel del proyecto `portfolio-2026` (*Settings → Git → Deploy Hooks*, rama `main`). Lo usa el botón «Publicar sitio». Es secreto: quien lo tenga puede lanzar builds.
 - `PORTFOLIO_R2_ACCOUNT_ID` / `PORTFOLIO_R2_ACCESS_KEY_ID` / `PORTFOLIO_R2_SECRET_ACCESS_KEY` / `PORTFOLIO_R2_BUCKET` — el bucket R2 **público** del portfolio (distinto de `insta-bot-media`, que es privado). Crea el token igual que en la sección anterior, restringido a ese bucket.
 - `PORTFOLIO_ASSETS_BASE_URL` — URL pública del bucket: `https://assets.javiersabando.lat`.
 - `PORTFOLIO_ORIGINALS_BUCKET` — bucket R2 **privado** para los originales full-res (p. ej. `portfolio-originals`). Créalo **sin** dominio propio y **sin** acceso público `r2.dev`. Usa las mismas credenciales `PORTFOLIO_R2_*`, así que el token necesita *Object Read & Write* en los dos buckets. Si la variable queda vacía, las subidas funcionan igual, pero sin guardar el original.
@@ -127,7 +128,8 @@ pnpm backfill:image-facts --apply    # backup JSON en backups/ y luego escribe
 | `R2_ACCOUNT_ID` | R2 → Overview → Account Details |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 → Manage API Tokens → Create API Token |
 | `R2_BUCKET` | Nombre que diste al bucket |
-| `PORTFOLIO_MONGODB_URI` | El `MONGODB_URI` de portfolio_2025 |
+| `PORTFOLIO_MONGODB_URI` | URI de `rtp_blog` con escritura (no la de solo lectura del sitio) |
+| `PORTFOLIO_DEPLOY_HOOK_URL` | Vercel → portfolio-2026 → Settings → Git → Deploy Hooks |
 | `PORTFOLIO_R2_*` | Credenciales del bucket público del portfolio |
 | `PORTFOLIO_ASSETS_BASE_URL` | `https://assets.javiersabando.lat` |
 | `PORTFOLIO_ORIGINALS_BUCKET` | Nombre del bucket R2 privado de originales |
