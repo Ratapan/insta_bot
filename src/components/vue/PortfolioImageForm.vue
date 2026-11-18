@@ -90,6 +90,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   unsupported_type: "Formato no soportado para el original (JPG, PNG, WebP).",
   storage_error: "No se pudo guardar el original en el bucket privado.",
   no_original: "Esta foto todavía no tiene original guardado.",
+  in_use: "Está en un post o una colección: quítala de ahí antes de borrarla.",
 };
 
 function messageFor(code: string): string {
@@ -227,7 +228,7 @@ async function viewOriginal() {
 
 async function removeDoc() {
   const alsoObject = confirm(
-    "¿Borrar también el archivo del bucket?\n\nAceptar: borra metadata Y archivo.\nCancelar: solo pregunta por la metadata.",
+    "¿Borrar también los archivos?\n\nAceptar: borra la metadata, el WebP público y el original (no se puede deshacer).\nCancelar: solo pregunta por la metadata.",
   );
   if (!alsoObject && !confirm("¿Borrar solo la metadata (el doc en Mongo)?")) {
     return;
@@ -242,7 +243,14 @@ async function removeDoc() {
     });
     const data = await res.json();
     if (!res.ok) {
-      error.value = messageFor(data.error);
+      const where = [
+        ...((data.usage?.posts ?? []) as { title: string }[]).map((p) => `el post «${p.title}»`),
+        ...((data.usage?.collections ?? []) as { title: string }[]).map((c) => `la colección «${c.title}»`),
+      ];
+      error.value =
+        data.error === "in_use" && where.length
+          ? `Está en ${where.join(", ")}: quítala de ahí antes de borrarla.`
+          : messageFor(data.error);
       return;
     }
     emit("deleted");

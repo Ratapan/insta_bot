@@ -6,14 +6,19 @@
 //          aplica upsertImage en la lib; aquí solo se valida y orquesta.
 //   PATCH  { url, …campos }  → update parcial de un doc EXISTENTE (404 si no
 //          hay doc; nunca crea stubs). Lo usa la cola de revisión.
-//   DELETE { url, deleteObject? }   → borra el doc y, opcionalmente, el objeto
+//   DELETE { url, deleteObject? }   → borra el doc y, con deleteObject, también
+//          sus archivos: el WebP público y el original del bucket privado.
+//          Una foto que está en un post o una colección NO se borra:
+//          409 in_use con `usage` (dónde está), para quitarla de ahí primero.
 import type { APIRoute } from "astro";
 import {
   deleteImageByUrl,
   findImageByUrl,
+  imageUsage,
   updateImageFields,
   upsertImage,
 } from "../../../lib/portfolioDb";
+import { deleteOriginal, originalsConfigured } from "../../../lib/portfolioOriginals";
 import { portfolioImageFieldsSchema } from "../../../lib/portfolioSchema";
 import {
   deletePortfolioObject,
@@ -103,21 +108,41 @@ export const DELETE: APIRoute = async (context) => {
   } catch {
     return json({ error: "bad_request" }, 400);
   }
-  if (!body.url) return json({ error: "bad_request" }, 400);
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  if (!url) return json({ error: "bad_request" }, 400);
 
   try {
-    const deletedDoc = await deleteImageByUrl(body.url);
+    const usage = await imageUsage(url);
+    if (usage.posts.length > 0 || usage.collections.length > 0) {
+      return json({ error: "in_use", usage }, 409);
+    }
+
+    // El originalKey se lee antes de borrar el doc: después ya no está.
+    const originalKey = body.deleteObject ? (await findImageByUrl(url))?.originalKey : undefined;
+    const deletedDoc = await deleteImageByUrl(url);
 
     let deletedObject = false;
+    let deletedOriginal = false;
     if (body.deleteObject) {
-      const key = keyFromPublicUrl(body.url);
+      const key = keyFromPublicUrl(url);
       if (key) {
         await deletePortfolioObject(key);
         deletedObject = true;
       }
+      // Best-effort: el doc y el WebP ya no están, así que si esto falla solo
+      // queda un original huérfano en el bucket privado (se loguea), nada roto.
+      if (originalKey && originalsConfigured()) {
+        deletedOriginal = await deleteOriginal(originalKey).then(
+          () => true,
+          (err) => {
+            console.error("[portfolio/image] DELETE original", err);
+            return false;
+          },
+        );
+      }
     }
 
-    return json({ deletedDoc, deletedObject });
+    return json({ deletedDoc, deletedObject, deletedOriginal });
   } catch (err) {
     console.error("[portfolio/image] DELETE", err);
     return json({ error: "portfolio_unavailable" }, 502);

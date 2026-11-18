@@ -2,7 +2,9 @@
 // Cola de revisión del portafolio, con dos modos sobre la misma cola:
 //   - "triage": una imagen grande, curado con teclado sin soltar las flechas.
 //   - "grid": cuadrícula con multi-selección (clic, shift para rango) y
-//     acciones en lote: visible/portafolio/estrellas y series.
+//     acciones en lote: visible/portafolio/estrellas, series y borrar.
+// Borrar (en los dos modos; Supr en uno a uno) elimina el doc, el WebP público
+// y el original. Las fotos que usa un post o una colección no se borran.
 // Una serie (díptico/tríptico) es un UUID compartido + orden; se crea desde
 // la selección y se gestiona en un panel con arrastre para reordenar,
 // propagación de footer y deshacer.
@@ -86,6 +88,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Has alcanzado el límite de generaciones por hora. Espera un poco antes de seguir.",
   invalid_url: "La URL de la imagen no es del bucket del portafolio.",
   exif_fetch_failed: "No se pudo descargar la imagen para leer su EXIF.",
+  in_use: "Está en un post o una colección: quítala de ahí antes de borrarla.",
 };
 
 function messageFor(code: string): string {
@@ -120,6 +123,7 @@ const strip = ref<HTMLElement | null>(null);
 const selected = ref(new Set<string>());
 let lastClicked: number | null = null;
 const bulkBusy = ref(false);
+const bulkVerb = ref<"Aplicando" | "Borrando">("Aplicando");
 const bulkProgress = ref({ done: 0, total: 0 });
 const bulkStars = ref(3);
 
@@ -131,10 +135,10 @@ const dragUrl = ref<string | null>(null);
 const toast = ref<{ text: string; kind: "error" | "ok" } | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-function showToast(text: string, kind: "error" | "ok" = "error") {
+function showToast(text: string, kind: "error" | "ok" = "error", ms = 4000) {
   toast.value = { text, kind };
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = null), 4000);
+  toastTimer = setTimeout(() => (toast.value = null), ms);
 }
 
 /** Sesión de una imagen: el campo si existe, si no la carpeta de la key. */
@@ -338,6 +342,99 @@ async function bulkPatch(
   if (failed > 0) {
     showToast(`${failed} de ${targets.length} no se pudieron guardar.`);
   }
+}
+
+// ---------- Borrar fotos ----------
+
+interface UsageInfo {
+  posts?: { title: string }[];
+  collections?: { title: string }[];
+}
+
+/** «post «X», colección «Y»»: por qué una foto no se borró. */
+function usageText(usage?: UsageInfo): string {
+  const parts = [
+    ...(usage?.posts ?? []).map((p) => `post «${p.title}»`),
+    ...(usage?.collections ?? []).map((c) => `colección «${c.title}»`),
+  ];
+  return parts.join(", ") || "un post o una colección";
+}
+
+/**
+ * Saca del estado local las fotos ya borradas. En uno a uno, si se borró la
+ * actual queda en su lugar la siguiente; si no, se sigue en la misma foto.
+ */
+function forgetImages(urls: Set<string>) {
+  if (urls.size === 0) return;
+  const keep = current.value && !urls.has(current.value.url) ? current.value.url : null;
+  const oldIndex = index.value;
+  images.value = images.value.filter((img) => !urls.has(img.url));
+  queueUrls.value = queueUrls.value.filter((u) => !urls.has(u));
+  for (const u of urls) {
+    selected.value.delete(u);
+    reviewed.value.delete(u);
+  }
+  index.value = keep
+    ? queueUrls.value.indexOf(keep)
+    : Math.min(oldIndex, Math.max(queueUrls.value.length - 1, 0));
+  if (queueUrls.value.length === 0) lightbox.value = false;
+  if (seriesPanel.value && panelOrder.value.some((u) => urls.has(u))) closeSeriesPanel();
+}
+
+/**
+ * Borra fotos de verdad: el doc, el WebP público y el original. Pide
+ * confirmación (no se puede deshacer) y va de a una, con progreso. Las que
+ * están en un post o una colección no se borran (409 in_use) y se avisan al final.
+ */
+async function deleteImages(targets: TriageImage[]) {
+  if (targets.length === 0 || bulkBusy.value) return;
+  const n = targets.length;
+  const question = n === 1 ? `¿Borrar «${targets[0]!.file}»?` : `¿Borrar ${n} fotos?`;
+  const ok = confirm(
+    `${question}\n\nSe borran la metadata, el WebP público y el original. No se puede deshacer.\n` +
+      "Las fotos que estén en un post o una colección no se borran.",
+  );
+  if (!ok) return;
+
+  bulkBusy.value = true;
+  bulkVerb.value = "Borrando";
+  bulkProgress.value = { done: 0, total: n };
+  const deleted = new Set<string>();
+  const inUse: string[] = [];
+  let failed = 0;
+  for (const img of targets) {
+    try {
+      const res = await fetch("/api/portfolio/image", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: img.url, deleteObject: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) deleted.add(img.url);
+      else if (data.error === "in_use") inUse.push(`${img.file} (${usageText(data.usage)})`);
+      else failed += 1;
+    } catch {
+      failed += 1;
+    }
+    bulkProgress.value.done += 1;
+  }
+  forgetImages(deleted);
+  bulkBusy.value = false;
+  bulkVerb.value = "Aplicando";
+
+  const parts: string[] = [];
+  if (deleted.size > 0) {
+    parts.push(deleted.size === 1 ? "Borrada 1 foto." : `Borradas ${deleted.size} fotos.`);
+  }
+  if (inUse.length > 0) {
+    parts.push(
+      `${inUse.length === 1 ? "Esta no se borró" : "Estas no se borraron"} por estar en uso: ` +
+        `${inUse.join("; ")}. Quítala${inUse.length === 1 ? "" : "s"} de ahí primero.`,
+    );
+  }
+  if (failed > 0) parts.push(`${failed} no se pudieron borrar.`);
+  const problems = inUse.length > 0 || failed > 0;
+  showToast(parts.join(" "), problems ? "error" : "ok", inUse.length > 0 ? 10000 : 4000);
 }
 
 // ---------- Series ----------
@@ -641,6 +738,9 @@ function onKey(e: KeyboardEvent) {
     case "p":
       patchImage(current.value, { portfolio: !current.value.portfolio });
       break;
+    case "delete":
+      void deleteImages([current.value]);
+      break;
     default:
       if (/^[0-5]$/.test(key)) {
         setStars(Number(key));
@@ -917,6 +1017,14 @@ onBeforeUnmount(() => {
         >
           ⧉ Serie {{ current.series.order + 1 }}/{{ seriesSize(current.series.id) }}
         </button>
+        <button
+          :disabled="bulkBusy"
+          class="rounded-full border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-40"
+          title="Borra la metadata, el WebP público y el original (Supr)"
+          @click="deleteImages([current])"
+        >
+          {{ bulkBusy && bulkVerb === "Borrando" ? "Borrando…" : "🗑 Borrar" }}
+        </button>
         <span class="ml-auto truncate text-xs text-neutral-400">
           {{ current.file }}
         </span>
@@ -991,8 +1099,8 @@ onBeforeUnmount(() => {
       <p class="mt-3 text-xs text-neutral-500">
         ⌨️ <kbd>←</kbd>/<kbd>→</kbd> navegar · <kbd>1</kbd>–<kbd>5</kbd>
         estrellas (<kbd>0</kbd> quita, repetir también) · <kbd>V</kbd> visible ·
-        <kbd>P</kbd> portafolio · <kbd>Enter</kbd> ampliar · <kbd>Esc</kbd>
-        cerrar
+        <kbd>P</kbd> portafolio · <kbd>Supr</kbd> borrar · <kbd>Enter</kbd> ampliar ·
+        <kbd>Esc</kbd> cerrar
       </p>
     </div>
 
@@ -1074,7 +1182,7 @@ onBeforeUnmount(() => {
         class="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3 shadow-lg"
       >
         <span v-if="bulkBusy" class="text-sm font-medium text-neutral-600">
-          Aplicando… {{ bulkProgress.done }}/{{ bulkProgress.total }}
+          {{ bulkVerb }}… {{ bulkProgress.done }}/{{ bulkProgress.total }}
         </span>
         <template v-else>
           <button
@@ -1147,6 +1255,14 @@ onBeforeUnmount(() => {
             @click="removeSeriesFromSelection"
           >
             Quitar serie
+          </button>
+          <span class="mx-1 h-5 w-px bg-neutral-200"></span>
+          <button
+            class="rounded-lg bg-red-100 px-3 py-1.5 text-xs font-medium text-red-800 hover:bg-red-200"
+            title="Borra la metadata, el WebP público y el original de la selección"
+            @click="deleteImages(selectedImages)"
+          >
+            🗑 Borrar
           </button>
           <button
             class="ml-auto text-xs text-neutral-500 hover:text-neutral-800"
@@ -1287,7 +1403,7 @@ onBeforeUnmount(() => {
     <!-- Aviso flotante (los PATCH fallidos revierten y avisan aquí) -->
     <div
       v-if="toast"
-      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-lg"
+      class="fixed bottom-4 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-lg sm:max-w-xl"
       :class="toast.kind === 'error' ? 'bg-red-600' : 'bg-neutral-900'"
     >
       {{ toast.text }}

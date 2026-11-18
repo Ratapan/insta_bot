@@ -238,6 +238,50 @@ export async function deleteImageByUrl(url: string): Promise<boolean> {
   return result.deletedCount === 1;
 }
 
+/** Posts y colecciones que muestran una foto (fuera de la galería). */
+export interface ImageUsage {
+  posts: { slug: string; title: string }[];
+  collections: { slug: string; title: string }[];
+}
+
+/**
+ * Dónde se usa una foto. En los posts: la portada (`mainImage`), el `images`
+ * legacy y los bloques `image`/`slide`, incluido el `imageUrl` de los posts
+ * legacy. En las colecciones: `photos` y `cover`. Borrar una foto en uso
+ * dejaría esas páginas con la imagen rota, así que el borrado lo consulta antes.
+ */
+export async function imageUsage(url: string): Promise<ImageUsage> {
+  const db = await getDb();
+  const projection = { _id: 0, slug: 1, title: 1 };
+  const [posts, collections] = await Promise.all([
+    db
+      .collection("blogs")
+      .find(
+        {
+          $or: [
+            { mainImage: url },
+            { images: url },
+            { "content.url": url },
+            { "content.imageUrl": url },
+            { "content.slides.url": url },
+            { "content.slides.imageUrl": url },
+          ],
+        },
+        { projection },
+      )
+      .toArray(),
+    db
+      .collection("collections")
+      .find({ $or: [{ photos: url }, { cover: url }] }, { projection })
+      .toArray(),
+  ]);
+  const label = (d: Record<string, unknown>) => ({
+    slug: String(d.slug ?? ""),
+    title: String(d.title ?? d.slug ?? ""),
+  });
+  return { posts: posts.map(label), collections: collections.map(label) };
+}
+
 /** Sesiones que tienen fotos (campo `session` de las imágenes), con su conteo. */
 export async function sessionsInUse(): Promise<{ session: string; count: number }[]> {
   const col = await getCollection();
